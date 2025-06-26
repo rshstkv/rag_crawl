@@ -1,0 +1,68 @@
+services:
+  postgres:
+    image: postgres:15-alpine
+    container_name: rag_crawl_postgres
+    environment:
+      POSTGRES_DB: rag_crawl
+      POSTGRES_USER: rag_user
+      POSTGRES_PASSWORD: rag_password
+      POSTGRES_HOST_AUTH_METHOD: md5
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U rag_user -d rag_crawl"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - rag_network
+
+  qdrant:
+    image: qdrant/qdrant:v1.6.1
+    container_name: rag_crawl_qdrant
+    ports:
+      - "6333:6333"  # HTTP API
+      - "6334:6334"  # gRPC API
+    volumes:
+      - qdrant_data:/qdrant/storage
+    environment:
+      QDRANT__SERVICE__HTTP_PORT: 6333
+      QDRANT__SERVICE__GRPC_PORT: 6334
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:6333/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - rag_network
+
+  # Приложение (для разработки - раскомментировать при необходимости)
+  # app:
+  #   build: .
+  #   container_name: rag_crawl_app
+  #   ports:
+  #     - "8000:8000"
+  #   environment:
+  #     - DATABASE_URL=postgresql://rag_user:rag_password@postgres:5432/rag_crawl
+  #     - QDRANT_HOST=qdrant
+  #     - QDRANT_PORT=6333
+  #   depends_on:
+  #     postgres:
+  #       condition: service_healthy
+  #     qdrant:
+  #       condition: service_healthy
+  #   volumes:
+  #     - ./src:/app/src
+  #     - ./uploads:/app/uploads
+  #   networks:
+  #     - rag_network
+
+volumes:
+  postgres_data:
+  qdrant_data:
+
+networks:
+  rag_network:
+    driver: bridge 

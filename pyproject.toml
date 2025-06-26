@@ -1,0 +1,73 @@
+[tool.poetry]
+name = "rag-crawl"
+version = "0.1.0"
+description = "RAG микросервис для индексации документов и диалогового интерфейса"
+authors = ["RAG Team <team@example.com>"]
+readme = "README.md"
+packages = [{ include = "rag_crawl", from = "src" }]
+
+[tool.poetry.dependencies]
+python = "^3.11,<3.14"
+fastapi = "^0.115.13"
+uvicorn = { extras = ["standard"], version = "^0.24.0" }
+sqlalchemy = "^2.0.0"
+alembic = "^1.12.0"
+psycopg2-binary = "^2.9.0"
+qdrant-client = "^1.6.0"
+llama-index = "^0.12.0"
+pydantic = { extras = ["email"], version = "^2.5.0" }
+pydantic-settings = "^2.1.0"
+aiofiles = "^23.2.0"
+pypdf2 = "^3.0.0"
+python-docx = "^1.1.0"
+markdown = "^3.5.0"
+beautifulsoup4 = "^4.12.0"
+python-jose = { extras = ["cryptography"], version = "^3.3.0" }
+passlib = { extras = ["bcrypt"], version = "^1.7.0" }
+llama-index-embeddings-azure-openai = "^0.3.8"
+llama-index-llms-azure-openai = "^0.3.4"
+llama-index-vector-stores-qdrant = "^0.6.1"
+
+[tool.poetry.group.dev.dependencies]
+pytest = "^7.4.0"
+pytest-asyncio = "^0.21.0"
+pytest-cov = "^4.1.0"
+black = "^23.10.0"
+isort = "^5.12.0"
+mypy = "^1.7.0"
+flake8 = "^6.1.0"
+pre-commit = "^3.5.0"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.black]
+line-length = 88
+target-version = ["py311"]
+include = '\.pyi?$'
+
+[tool.isort]
+profile = "black"
+multi_line_output = 3
+line_length = 88
+
+[tool.mypy]
+python_version = "3.11"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true
+disallow_incomplete_defs = true
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = [
+    "--cov=src/rag_crawl",
+    "--cov-report=html",
+    "--cov-report=term-missing",
+    "--cov-fail-under=80",
+]

@@ -1,0 +1,17 @@
+---
+description: 
+globs: 
+alwaysApply: false
+---
+# RAG Crawl Development Rules
+
+## Project Overview
+RAG microservice for document indexing and conversational interface using:
+- **Python** with **Poetry** dependency management
+- **FastAPI** for REST API + **Gradio** for UI
+- **PostgreSQL** for metadata + **Qdrant** for vector storage  
+- **LlamaIndex** for RAG + **Azure OpenAI** for LLM/embeddings
+- **Docker Compose** for local development
+
+
+

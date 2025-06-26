@@ -1,0 +1,304 @@
+# RAG Crawl Development Rules
+
+## Project Overview
+RAG microservice for document indexing and conversational interface using:
+- **Python 3.11+** with **Poetry** dependency management
+- **FastAPI** for REST API + **Gradio** for UI
+- **PostgreSQL** for metadata + **Qdrant** for vector storage  
+- **LlamaIndex** for RAG + **Azure OpenAI** for LLM/embeddings
+- **Docker Compose** for local development
+
+## Code Style & Standards
+
+### Python Standards
+- Use **Black** formatting (line length: 88)
+- **isort** for import organization 
+- **Type hints required** for all functions/methods
+- **Pydantic** models for data validation
+- **Python 3.11+** features preferred
+
+### File Organization
+```
+src/rag_crawl/
+├── config.py          # Settings management
+├── main.py            # FastAPI entry point
+├── database/          # SQLAlchemy models & connections
+├── services/          # Business logic (single responsibility)
+├── api/              # FastAPI routes (thin layer)
+├── ui/               # Gradio interface
+└── utils/            # Helper functions & utilities
+```
+
+### Naming Conventions
+- **Classes**: PascalCase (`DocumentService`, `ChatResponse`)
+- **Functions/methods**: snake_case (`upload_document`, `get_chunks`)
+- **Constants**: UPPER_SNAKE_CASE (`MAX_CHUNK_SIZE`, `DEFAULT_NAMESPACE`)
+- **Files/modules**: snake_case (`document_service.py`, `chat_api.py`)
+
+## Architecture Rules
+
+### Services Layer (Core Business Logic)
+- **Single Responsibility**: One service per domain
+- **Dependency Injection**: Constructor injection for testability
+- **No direct DB access from API**: Always through services
+- **Error handling**: Raise specific exceptions, handle at API level
+
+```python
+# Good - Service with clear responsibility
+class DocumentService:
+    def __init__(self, db: Session, vector_service: VectorService):
+        self._db = db
+        self._vector_service = vector_service
+    
+    async def upload_document(self, file: UploadFile, metadata: DocumentMetadata) -> Document:
+        # Business logic here
+        pass
+```
+
+### API Layer (Thin Controllers)
+- **Route handlers are thin**: Delegate to services immediately
+- **Pydantic models** for request/response validation
+- **Dependency injection** for services
+- **Consistent error responses**
+
+```python
+# Good - Thin API layer
+@app.post("/api/documents/upload")
+async def upload_document(
+    file: UploadFile,
+    metadata: DocumentMetadata,
+    doc_service: DocumentService = Depends(get_document_service)
+) -> DocumentResponse:
+    return await doc_service.upload_document(file, metadata)
+```
+
+### Database Layer
+- **SQLAlchemy models** in `database/models.py`
+- **Repository pattern** for complex queries
+- **Session management** via context managers
+- **Migrations** with Alembic
+
+## Configuration Management
+
+### Environment Variables
+All configuration through `.env` file and Pydantic Settings:
+
+```python
+class Settings(BaseSettings):
+    azure_openai_api_key: str = Field(..., env="AZURE_OPENAI_API_KEY")
+    database_url: str = Field(..., env="DATABASE_URL")
+    # etc...
+    
+    class Config:
+        env_file = ".env"
+```
+
+### Port Allocations
+- **FastAPI**: 8000
+- **Gradio**: Embedded in FastAPI (7860 fallback)
+- **PostgreSQL**: 5432  
+- **Qdrant**: 6333 (HTTP), 6334 (gRPC)
+
+## Tech Stack Specific Rules
+
+### LlamaIndex Integration
+- **Index management**: Single global index per namespace
+- **Chunking strategy**: 1024 tokens with 200 overlap
+- **Retrieval**: Top-3 results with source attribution
+- **Azure OpenAI**: Use async methods when available
+
+### Database Schema Rules
+- **UUIDs for vector_id**: Qdrant compatibility
+- **JSON metadata fields**: For extensibility
+- **Proper indexing**: On namespace, content_hash, vector_id
+- **Soft deletes**: Use `is_active` flag
+
+### Vector Storage (Qdrant)
+- **Collection naming**: Use descriptive names (`documents`)
+- **Vector dimensions**: 1536 (Azure OpenAI embeddings)
+- **Metadata storage**: Store document_id and chunk_index
+- **Cleanup**: Always delete vectors when document removed
+
+## OOP Principles (Pragmatic Application)
+
+### Keep It Simple
+- **Favor composition over inheritance**
+- **Single responsibility classes**
+- **Avoid deep inheritance hierarchies**
+- **Prefer protocols/interfaces for abstractions**
+
+### Good OOP Examples
+```python
+# Protocol for abstraction
+class VectorStore(Protocol):
+    async def store_embeddings(self, chunks: List[DocumentChunk]) -> bool: ...
+    async def search_similar(self, vector: List[float], top_k: int) -> List[SearchResult]: ...
+
+# Concrete implementation
+class QdrantVectorStore:
+    def __init__(self, client: QdrantClient):
+        self._client = client
+    
+    async def store_embeddings(self, chunks: List[DocumentChunk]) -> bool:
+        # Implementation
+        pass
+```
+
+### Avoid Over-Engineering
+- **No unnecessary abstractions**
+- **No factories for simple objects**
+- **No complex design patterns unless justified**
+- **Direct class instantiation is fine for simple cases**
+
+## Error Handling
+
+### Exception Strategy
+```python
+# Custom exceptions for business logic
+class DocumentProcessingError(Exception):
+    def __init__(self, document_id: int, reason: str):
+        self.document_id = document_id
+        self.reason = reason
+        super().__init__(f"Document {document_id} processing failed: {reason}")
+
+# API error handling
+@app.exception_handler(DocumentProcessingError)
+async def document_error_handler(request: Request, exc: DocumentProcessingError):
+    return JSONResponse(
+        status_code=422,
+        content={"error": "document_processing_failed", "details": exc.reason}
+    )
+```
+
+### Logging Rules
+- **Structured logging**: Use JSON format
+- **Log levels**: INFO for operations, ERROR for failures, DEBUG for dev
+- **No sensitive data**: Never log API keys or user content
+- **Request correlation**: Use request IDs for tracing
+
+## Testing Guidelines
+
+### Test Structure
+```
+tests/
+├── unit/           # Fast, isolated tests
+├── integration/    # Database + external services
+└── fixtures/       # Test data
+```
+
+### Testing Rules
+- **Unit tests**: Mock all external dependencies
+- **Integration tests**: Use test database + real services
+- **Fixtures**: Reusable test data in version control
+- **Coverage**: Aim for 80%+ on business logic
+
+## File Size & Complexity Limits
+
+### File Size Guidelines
+- **Services**: Max 300 lines per file
+- **Models**: Max 200 lines per file  
+- **API routes**: Max 150 lines per file
+- **Split large files**: Use logical boundaries
+
+### Function Complexity
+- **Max 50 lines per function**
+- **Max 4 parameters** (use Pydantic models for more)
+- **Single responsibility**: One thing per function
+- **Extract helpers**: For complex logic
+
+## Docker & Development
+
+### Local Development
+```bash
+# Start services
+docker-compose up -d postgres qdrant
+
+# Install dependencies
+poetry install
+
+# Run application
+poetry run python -m rag_crawl.main
+```
+
+### Container Rules
+- **Multi-stage builds** for production images
+- **Poetry for dependency management** (no requirements.txt)
+- **Health checks** for all services
+- **Volume mounts** for development
+
+## Security Guidelines
+
+### Input Validation
+- **Pydantic models** for all API inputs
+- **File type validation** before processing
+- **Size limits** on uploads (100MB max)
+- **Sanitize filenames** to prevent path traversal
+
+### Secrets Management
+- **Never commit secrets** to version control
+- **Environment variables** for all secrets
+- **Azure Key Vault** for production (future)
+
+## Performance Guidelines
+
+### Database Performance
+- **Proper indexing** on frequently queried columns
+- **Pagination** for list endpoints
+- **Connection pooling** via SQLAlchemy
+- **Query optimization** for complex operations
+
+### Vector Search Optimization
+- **Batch operations** when possible
+- **Async/await** for I/O operations
+- **Proper timeouts** for external services
+- **Caching** for frequently accessed embeddings (future)
+
+## Specific Anti-Patterns to Avoid
+
+### ❌ Don't Do This
+```python
+# Fat API controllers
+@app.post("/api/documents/upload")
+async def upload_document(file: UploadFile):
+    # 100 lines of business logic - WRONG!
+    
+# Direct database access from API
+@app.get("/api/documents")
+async def get_documents():
+    session = SessionLocal()
+    return session.query(Document).all()  # WRONG!
+
+# Huge service classes
+class DocumentService:
+    # 1000 lines of mixed responsibilities - WRONG!
+```
+
+### ✅ Do This Instead
+```python
+# Thin API with service delegation
+@app.post("/api/documents/upload")
+async def upload_document(
+    file: UploadFile,
+    service: DocumentService = Depends(get_document_service)
+):
+    return await service.upload_document(file)
+
+# Service with single responsibility
+class DocumentService:
+    def __init__(self, repository: DocumentRepository):
+        self._repo = repository
+    
+    async def upload_document(self, file: UploadFile) -> Document:
+        # Focused business logic
+        pass
+```
+
+## When to Break Rules
+
+Rules can be broken when:
+1. **Performance requirements** demand it
+2. **Third-party constraints** prevent compliance
+3. **Technical debt** requires gradual refactoring
+4. **Prototype code** needs rapid iteration
+
+**Always document** why rules were broken and plan for future compliance. 
