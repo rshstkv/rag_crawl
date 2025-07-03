@@ -4,6 +4,7 @@
 """
 
 import logging
+import time
 from typing import List, Dict, Any, Optional
 from pathlib import Path
 import uuid
@@ -16,6 +17,7 @@ from llama_index.embeddings.azure_openai import AzureOpenAIEmbedding
 from llama_index.llms.azure_openai import AzureOpenAI
 from llama_index.vector_stores.qdrant import QdrantVectorStore
 import qdrant_client
+from qdrant_client.models import Distance, VectorParams
 from fastapi import UploadFile
 from sqlalchemy.orm import Session
 
@@ -127,7 +129,6 @@ class LlamaIndexService:
                 logger.info(f"✅ Коллекция '{collection_name}' уже существует")
             except Exception:
                 # Коллекция не существует, создаем её
-                from qdrant_client.models import Distance, VectorParams
                 client.create_collection(
                     collection_name=collection_name,
                     vectors_config=VectorParams(
@@ -200,8 +201,40 @@ class LlamaIndexService:
             )
             
             self._chat_engines[cache_key] = chat_engine
-            
+            logger.info(f"✅ Создан chat engine для namespace: {namespace}")
+        
         return self._chat_engines[cache_key]
+
+    def _get_collection_info(self) -> Dict[str, Any]:
+        """Получение информации о коллекции Qdrant."""
+        try:
+            vector_store = self._get_vector_store_lazy()
+            client = vector_store.client
+            collection_name = settings.qdrant_collection_name
+            
+            collection_info = client.get_collection(collection_name)
+            
+            return {
+                "collection_name": collection_name,
+                "points_count": collection_info.points_count,
+                "vectors_count": collection_info.vectors_count,
+                "status": collection_info.status,
+                "config": {
+                    "distance": collection_info.config.params.vectors.distance,
+                    "size": collection_info.config.params.vectors.size,
+                }
+            }
+        except Exception as e:
+            logger.error(f"❌ Ошибка получения информации о коллекции: {e}")
+            return {"error": str(e)}
+
+    def _get_collection_points_count(self) -> int:
+        """Получение количества точек в коллекции."""
+        try:
+            info = self._get_collection_info()
+            return info.get("points_count", 0)
+        except Exception:
+            return 0
 
     async def upload_document(
         self, 
@@ -226,6 +259,9 @@ class LlamaIndexService:
             # Автоматически определяем категорию документа
             document_category = self._detect_document_category(title, source_type, cleaned_text)
             
+            # Получаем количество точек до индексации
+            points_count_before = self._get_collection_points_count()
+            
             # Богатые метаданные для умной фильтрации
             rich_metadata = {
                 "title": title,
@@ -239,6 +275,25 @@ class LlamaIndexService:
                 "language": "ru",
             }
             
+            # Сохранение метаданных в БД сначала, чтобы получить document_id
+            db_document = DBDocument(
+                title=title,
+                source_type=source_type,
+                namespace=namespace,
+                source_url=file.filename,
+                content_hash=str(hash(cleaned_text)),
+                vector_id=str(uuid.uuid4()),
+                chunks_count=0,  # Пока 0, обновим после создания чанков
+                metadata_json=rich_metadata
+            )
+            
+            self.db.add(db_document)
+            self.db.commit()
+            self.db.refresh(db_document)
+            
+            # Добавляем document_id в метаданные
+            rich_metadata["document_id"] = db_document.id
+            
             llama_doc = Document(
                 text=cleaned_text,
                 metadata=rich_metadata
@@ -246,6 +301,9 @@ class LlamaIndexService:
             
             # Получаем vector store для pipeline
             vector_store = self._get_vector_store_lazy()
+            
+            logger.info(f"📊 Начинается индексация документа: {title}")
+            logger.info(f"🔍 Vector store: {type(vector_store).__name__}")
             
             # ✅ ИСПРАВЛЕНО: Создание pipeline для правильного чанкинга
             pipeline = IngestionPipeline(
@@ -263,36 +321,29 @@ class LlamaIndexService:
             nodes = pipeline.run(documents=[llama_doc])
             chunk_count = len(nodes)
             
-            logger.info(f"✅ IngestionPipeline создал {chunk_count} чанков из документа '{title}'")
-            
-            # Сохранение метаданных в БД
-            db_document = DBDocument(
-                title=title,
-                source_type=source_type,
-                namespace=namespace,
-                source_url=file.filename,
-                content_hash=str(hash(cleaned_text)),
-                vector_id=str(uuid.uuid4()),
-                chunks_count=chunk_count,  # Реальное количество чанков
-                metadata_json=rich_metadata
-            )
-            
-            self.db.add(db_document)
-            self.db.commit()
-            self.db.refresh(db_document)
+            logger.info(f"📝 Создано чанков: {chunk_count}")
             
             # Создаем чанки в базе данных для каждого node
             for i, node in enumerate(nodes):
+                chunk_metadata = {**rich_metadata, "chunk_index": i}
                 chunk = DocumentChunk(
                     document_id=db_document.id,
                     chunk_index=i,
                     content=node.text,
                     vector_id=node.node_id,
-                    metadata_json={**rich_metadata, "chunk_index": i}
+                    metadata_json=chunk_metadata
                 )
                 self.db.add(chunk)
             
+            # Обновляем количество чанков в документе
+            db_document.chunks_count = chunk_count
             self.db.commit()
+            
+            # Проверяем, что векторы действительно сохранены
+            points_count_after = self._get_collection_points_count()
+            vectors_added = points_count_after - points_count_before
+            
+            logger.info(f"✅ Векторы добавлены: {vectors_added}")
             
             # Очистка кэша для namespace
             if namespace in self._indices:
@@ -311,6 +362,302 @@ class LlamaIndexService:
             logger.error(f"❌ Ошибка загрузки документа: {e}")
             self.db.rollback()
             raise
+
+    async def reindex_all_documents(self, namespace: Optional[str] = None) -> Dict[str, Any]:
+        """Переиндексация всех документов в namespace."""
+        try:
+            # Получаем все документы
+            query = self.db.query(DBDocument).filter(DBDocument.is_active == True)
+            if namespace:
+                query = query.filter(DBDocument.namespace == namespace)
+            
+            documents = query.all()
+            
+            if not documents:
+                return {
+                    "message": "Нет документов для переиндексации",
+                    "namespace": namespace,
+                    "documents_processed": 0
+                }
+            
+            # Очищаем кэши
+            if namespace:
+                if namespace in self._indices:
+                    del self._indices[namespace]
+                keys_to_remove = [k for k in self._chat_engines.keys() if k.startswith(f"{namespace}:")]
+                for key in keys_to_remove:
+                    del self._chat_engines[key]
+            else:
+                self._indices.clear()
+                self._chat_engines.clear()
+            
+            # Переиндексируем документы
+            success_count = 0
+            errors = []
+            
+            for document in documents:
+                try:
+                    result = await self.reindex_document(document.id)
+                    if result["success"]:
+                        success_count += 1
+                    else:
+                        errors.append(f"Документ {document.id}: {result.get('error', 'Неизвестная ошибка')}")
+                except Exception as e:
+                    errors.append(f"Документ {document.id}: {str(e)}")
+            
+            return {
+                "message": f"Переиндексация завершена",
+                "namespace": namespace,
+                "documents_processed": success_count,
+                "total_documents": len(documents),
+                "errors": errors
+            }
+            
+        except Exception as e:
+            logger.error(f"❌ Ошибка переиндексации всех документов: {e}")
+            raise
+
+    async def reindex_document(self, document_id: int) -> Dict[str, Any]:
+        """Переиндексация одного документа."""
+        try:
+            # Получаем документ
+            document = self.db.query(DBDocument).filter(
+                DBDocument.id == document_id,
+                DBDocument.is_active == True
+            ).first()
+            
+            if not document:
+                return {
+                    "success": False,
+                    "error": "Документ не найден"
+                }
+            
+            # Получаем чанки документа
+            chunks = self.db.query(DocumentChunk).filter(
+                DocumentChunk.document_id == document_id
+            ).all()
+            
+            if not chunks:
+                return {
+                    "success": False,
+                    "error": "Чанки документа не найдены"
+                }
+            
+            # Собираем полный текст из чанков
+            full_text = "\n".join([chunk.content for chunk in chunks])
+            
+            # Создаем метаданные
+            metadata = {
+                "title": document.title,
+                "source_type": document.source_type,
+                "category": document.metadata_json.get("category", "general") if document.metadata_json else "general",
+                "namespace": document.namespace,
+                "filename": document.source_url,
+                "content_length": len(full_text),
+                "upload_source": "reindex",
+                "language": "ru",
+                "document_id": document.id
+            }
+            
+            # Создаем LlamaIndex документ
+            llama_doc = Document(
+                text=full_text,
+                metadata=metadata
+            )
+            
+            # Получаем vector store
+            vector_store = self._get_vector_store_lazy()
+            
+            # Создаем pipeline для переиндексации
+            pipeline = IngestionPipeline(
+                transformations=[
+                    SentenceSplitter(
+                        chunk_size=settings.max_chunk_size,
+                        chunk_overlap=settings.chunk_overlap
+                    ),
+                    self.embed_model,
+                ],
+                vector_store=vector_store,
+            )
+            
+            # Обработка документа
+            nodes = pipeline.run(documents=[llama_doc])
+            
+            # Удаляем старые чанки из базы данных
+            self.db.query(DocumentChunk).filter(
+                DocumentChunk.document_id == document_id
+            ).delete()
+            
+            # Создаем новые чанки
+            for i, node in enumerate(nodes):
+                chunk_metadata = {**metadata, "chunk_index": i}
+                chunk = DocumentChunk(
+                    document_id=document.id,
+                    chunk_index=i,
+                    content=node.text,
+                    vector_id=node.node_id,
+                    metadata_json=chunk_metadata
+                )
+                self.db.add(chunk)
+            
+            # Обновляем количество чанков
+            document.chunks_count = len(nodes)
+            self.db.commit()
+            
+            # Очищаем кэши для namespace
+            namespace = document.namespace
+            if namespace in self._indices:
+                del self._indices[namespace]
+            
+            keys_to_remove = [k for k in self._chat_engines.keys() if k.startswith(f"{namespace}:")]
+            for key in keys_to_remove:
+                del self._chat_engines[key]
+            
+            logger.info(f"✅ Документ {document_id} переиндексирован, создано {len(nodes)} чанков")
+            
+            return {
+                "success": True,
+                "document_id": document_id,
+                "chunks_created": len(nodes),
+                "message": "Документ успешно переиндексирован"
+            }
+            
+        except Exception as e:
+            logger.error(f"❌ Ошибка переиндексации документа {document_id}: {e}")
+            self.db.rollback()
+            return {
+                "success": False,
+                "error": str(e)
+            }
+
+    async def reindex_documents_batch(self, document_ids: List[int]) -> Dict[str, Any]:
+        """Переиндексация группы документов."""
+        try:
+            results = []
+            success_count = 0
+            
+            for doc_id in document_ids:
+                result = await self.reindex_document(doc_id)
+                results.append(result)
+                if result["success"]:
+                    success_count += 1
+            
+            return {
+                "message": f"Переиндексация завершена",
+                "documents_processed": success_count,
+                "total_documents": len(document_ids),
+                "results": results
+            }
+            
+        except Exception as e:
+            logger.error(f"❌ Ошибка пакетной переиндексации: {e}")
+            raise
+
+    async def get_document_content(self, document_id: int) -> Dict[str, Any]:
+        """Получить полное содержимое документа с чанками."""
+        try:
+            # Получаем документ
+            document = self.db.query(DBDocument).filter(
+                DBDocument.id == document_id,
+                DBDocument.is_active == True
+            ).first()
+            
+            if not document:
+                return {"error": "Документ не найден"}
+            
+            # Получаем чанки
+            chunks = self.db.query(DocumentChunk).filter(
+                DocumentChunk.document_id == document_id
+            ).order_by(DocumentChunk.chunk_index).all()
+            
+            # Собираем полный текст
+            full_text = "\n".join([chunk.content for chunk in chunks])
+            
+            return {
+                "document": {
+                    "id": document.id,
+                    "title": document.title,
+                    "source_type": document.source_type,
+                    "namespace": document.namespace,
+                    "created_at": document.created_at.isoformat(),
+                    "chunks_count": document.chunks_count,
+                    "metadata": document.metadata_json or {}
+                },
+                "full_text": full_text,
+                "chunks": [
+                    {
+                        "index": chunk.chunk_index,
+                        "content": chunk.content,
+                        "vector_id": chunk.vector_id,
+                        "metadata": chunk.metadata_json or {}
+                    }
+                    for chunk in chunks
+                ]
+            }
+            
+        except Exception as e:
+            logger.error(f"❌ Ошибка получения содержимого документа {document_id}: {e}")
+            return {"error": str(e)}
+
+    async def get_document_chunks(self, document_id: int) -> List[Dict[str, Any]]:
+        """Получить все чанки документа с метаданными."""
+        try:
+            chunks = self.db.query(DocumentChunk).filter(
+                DocumentChunk.document_id == document_id
+            ).order_by(DocumentChunk.chunk_index).all()
+            
+            return [
+                {
+                    "id": chunk.id,
+                    "chunk_index": chunk.chunk_index,
+                    "content": chunk.content,
+                    "vector_id": chunk.vector_id,
+                    "metadata": chunk.metadata_json or {},
+                    "created_at": chunk.created_at.isoformat()
+                }
+                for chunk in chunks
+            ]
+            
+        except Exception as e:
+            logger.error(f"❌ Ошибка получения чанков документа {document_id}: {e}")
+            return []
+
+    async def get_system_diagnostics(self) -> Dict[str, Any]:
+        """Получить диагностическую информацию о системе."""
+        try:
+            # Информация о Qdrant
+            qdrant_info = self._get_collection_info()
+            
+            # Информация о документах в PostgreSQL
+            total_documents = self.db.query(DBDocument).filter(DBDocument.is_active == True).count()
+            total_chunks = self.db.query(DocumentChunk).count()
+            
+            # Информация по namespace
+            from sqlalchemy import func
+            namespace_stats = self.db.query(
+                DBDocument.namespace,
+                func.count(DBDocument.id).label("document_count")
+            ).filter(DBDocument.is_active == True).group_by(DBDocument.namespace).all()
+            
+            return {
+                "qdrant": qdrant_info,
+                "postgresql": {
+                    "total_documents": total_documents,
+                    "total_chunks": total_chunks,
+                    "namespace_stats": [
+                        {"namespace": ns, "documents": count}
+                        for ns, count in namespace_stats
+                    ]
+                },
+                "cache": {
+                    "indices_cached": len(self._indices),
+                    "chat_engines_cached": len(self._chat_engines)
+                }
+            }
+            
+        except Exception as e:
+            logger.error(f"❌ Ошибка получения диагностики: {e}")
+            return {"error": str(e)}
 
     async def chat(
         self, 
@@ -366,9 +713,14 @@ class LlamaIndexService:
         namespace: str = "default"
     ) -> Dict[str, Any]:
         """
-        Простой запрос с фильтрацией релевантности (обновлено согласно спецификации).
+        Простой запрос с фильтрацией релевантности и debug информацией.
         """
         try:
+            start_time = time.time()
+            
+            # Получить информацию о коллекции
+            collection_info = self._get_collection_info()
+            
             index = self._get_index(namespace)
             
             # Настройка постпроцессоров для фильтрации релевантности
@@ -386,6 +738,8 @@ class LlamaIndexService:
             # Выполнение запроса
             response = query_engine.query(question)
             
+            search_time = (time.time() - start_time) * 1000
+            
             # Извлечение источников с улучшенной информацией
             sources = []
             if hasattr(response, 'source_nodes') and response.source_nodes:
@@ -396,7 +750,8 @@ class LlamaIndexService:
                             "source_type": node.metadata.get("source_type", "unknown"),
                             "score": round(getattr(node, 'score', 0.0), 3),  # Округляем для читаемости
                             "document_id": node.metadata.get("document_id"),
-                            "chunk_index": node.metadata.get("chunk_index", 0)
+                            "chunk_index": node.metadata.get("chunk_index", 0),
+                            "content_preview": node.text[:200] + "..." if len(node.text) > 200 else node.text
                         })
             
             logger.info(f"✅ Query выполнен, найдено {len(sources)} релевантных источников (>0.75)")
@@ -404,7 +759,15 @@ class LlamaIndexService:
             return {
                 "response": str(response),
                 "sources": sources,
-                "total_sources": len(sources)  # Добавляем счетчик для отладки
+                "debug_info": {
+                    "collection_points_count": collection_info.get("points_count", 0),
+                    "similarity_cutoff": 0.75,
+                    "search_time_ms": round(search_time, 2),
+                    "namespace": namespace,
+                    "sources_found": len(sources)
+                },
+                "total_documents": collection_info.get("points_count", 0),
+                "search_time_ms": round(search_time, 2)
             }
             
         except Exception as e:
@@ -422,7 +785,7 @@ class LlamaIndexService:
             if namespace:
                 query = query.filter(DBDocument.namespace == namespace)
             
-            documents = query.all()
+            documents = query.order_by(DBDocument.created_at.desc()).all()
             
             return [
                 {
@@ -543,17 +906,24 @@ class LlamaIndexService:
     def index_document(self, document: 'DBDocument') -> bool:
         """
         Индексирует документ в векторном хранилище.
-        
-        Args:
-            document: Документ для индексации
-            
-        Returns:
-            True, если документ успешно проиндексирован
+        ИСПРАВЛЕНО: Теперь получает контент из chunks.
         """
         try:
+            # Получаем чанки документа
+            chunks = self.db.query(DocumentChunk).filter(
+                DocumentChunk.document_id == document.id
+            ).order_by(DocumentChunk.chunk_index).all()
+            
+            if not chunks:
+                logger.warning(f"Не найдены чанки для документа {document.id}")
+                return False
+            
+            # Собираем полный текст из чанков
+            full_text = "\n".join([chunk.content for chunk in chunks])
+            
             # Создаем документ LlamaIndex
             llama_doc = Document(
-                text=document.content,
+                text=full_text,
                 metadata={
                     "title": document.title,
                     "source_type": document.source_type,
@@ -583,13 +953,6 @@ class LlamaIndexService:
     def chat_with_docs(self, message: str, namespace: str = "default") -> str:
         """
         Чат с документами через встроенный ChatEngine.
-        
-        Args:
-            message: Сообщение пользователя
-            namespace: Пространство имен для поиска документов
-            
-        Returns:
-            Ответ на вопрос пользователя
         """
         try:
             # Получаем chat engine для namespace

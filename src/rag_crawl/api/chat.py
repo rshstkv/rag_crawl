@@ -34,9 +34,12 @@ class QueryRequest(BaseModel):
 
 
 class QueryResponse(BaseModel):
-    """Модель ответа поиска."""
+    """Модель ответа поиска с debug информацией."""
     response: str
     sources: List[Dict[str, Any]]
+    debug_info: Optional[Dict[str, Any]] = None
+    total_documents: Optional[int] = None
+    search_time_ms: Optional[float] = None
 
 
 def get_llama_service(db: Session = Depends(get_db)) -> LlamaIndexService:
@@ -56,7 +59,7 @@ async def chat_with_documents(
     try:
         result = await service.chat(
             message=request.message,
-            namespace=request.namespace,
+            namespace=request.namespace or "default",
             session_id=request.session_id
         )
         return ChatResponse(**result)
@@ -70,13 +73,13 @@ async def query_documents(
     service: LlamaIndexService = Depends(get_llama_service)
 ):
     """
-    Простой запрос к документам без сохранения контекста.
+    Простой запрос к документам без сохранения контекста с debug информацией.
     Использует встроенный LlamaIndex QueryEngine.
     """
     try:
         result = await service.query(
             question=request.question,
-            namespace=request.namespace
+            namespace=request.namespace or "default"
         )
         return QueryResponse(**result)
     except Exception as e:

@@ -31,6 +31,20 @@ class UploadResponse(BaseModel):
     message: str
 
 
+class ReindexRequest(BaseModel):
+    """Модель запроса для переиндексации."""
+    document_ids: Optional[List[int]] = None
+    namespace: Optional[str] = None
+
+
+class ReindexResponse(BaseModel):
+    """Модель ответа при переиндексации."""
+    message: str
+    documents_processed: int
+    total_documents: int
+    errors: Optional[List[str]] = None
+
+
 def get_llama_service(db: Session = Depends(get_db)) -> LlamaIndexService:
     """Dependency для получения LlamaIndex сервиса."""
     return LlamaIndexService(db)
@@ -77,6 +91,109 @@ async def get_documents(
     try:
         documents = await service.get_documents(namespace=namespace)
         return [DocumentResponse(**doc) for doc in documents]
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/{document_id}/content")
+async def get_document_content(
+    document_id: int,
+    service: LlamaIndexService = Depends(get_llama_service)
+):
+    """Получить содержимое документа с чанками."""
+    try:
+        content = await service.get_document_content(document_id)
+        if "error" in content:
+            raise HTTPException(status_code=404, detail=content["error"])
+        return content
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/{document_id}/chunks")
+async def get_document_chunks(
+    document_id: int,
+    service: LlamaIndexService = Depends(get_llama_service)
+):
+    """Получить все чанки документа."""
+    try:
+        chunks = await service.get_document_chunks(document_id)
+        return {"chunks": chunks}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/reindex", response_model=ReindexResponse)
+async def reindex_documents(
+    request: Optional[ReindexRequest] = None,
+    service: LlamaIndexService = Depends(get_llama_service)
+):
+    """Переиндексация документов в namespace."""
+    try:
+        namespace = request.namespace if request else None
+        result = await service.reindex_all_documents(namespace)
+        return ReindexResponse(**result)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/reindex-all", response_model=ReindexResponse)
+async def reindex_all_documents(
+    service: LlamaIndexService = Depends(get_llama_service)
+):
+    """Переиндексация всех документов во всех namespace."""
+    try:
+        result = await service.reindex_all_documents()
+        return ReindexResponse(**result)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/{document_id}/reindex")
+async def reindex_single_document(
+    document_id: int,
+    service: LlamaIndexService = Depends(get_llama_service)
+):
+    """Переиндексация одного документа."""
+    try:
+        result = await service.reindex_document(document_id)
+        if not result["success"]:
+            raise HTTPException(status_code=404, detail=result["error"])
+        return result
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/reindex-batch")
+async def reindex_batch_documents(
+    request: ReindexRequest,
+    service: LlamaIndexService = Depends(get_llama_service)
+):
+    """Переиндексация группы документов."""
+    try:
+        if not request.document_ids:
+            raise HTTPException(status_code=400, detail="Список document_ids не может быть пустым")
+        
+        result = await service.reindex_documents_batch(request.document_ids)
+        return ReindexResponse(**result)
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/diagnostics")
+async def get_system_diagnostics(
+    service: LlamaIndexService = Depends(get_llama_service)
+):
+    """Получить диагностическую информацию о системе."""
+    try:
+        diagnostics = await service.get_system_diagnostics()
+        return diagnostics
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
