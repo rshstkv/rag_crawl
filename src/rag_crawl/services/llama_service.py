@@ -10,6 +10,8 @@ import uuid
 
 from llama_index.core import VectorStoreIndex, Document, StorageContext, Settings
 from llama_index.core.node_parser import SentenceSplitter
+from llama_index.core.postprocessor import SimilarityPostprocessor
+from llama_index.core.ingestion import IngestionPipeline
 from llama_index.embeddings.azure_openai import AzureOpenAIEmbedding
 from llama_index.llms.azure_openai import AzureOpenAI
 from llama_index.vector_stores.qdrant import QdrantVectorStore
@@ -108,16 +110,43 @@ class LlamaIndexService:
         
         return "general"
 
-    def _get_vector_store(self) -> Any:
-        """Получение векторного хранилища - ВРЕМЕННО используем in-memory хранилище."""
+    def _get_vector_store(self) -> QdrantVectorStore:
+        """Получение Qdrant векторного хранилища (исправлено согласно документации LlamaIndex)."""
         try:
-            # ВРЕМЕННОЕ РЕШЕНИЕ: используем in-memory хранилище для тестирования
-            logger.warning("Используем временное in-memory векторное хранилище для отладки")
-            # Возвращаем None - VectorStoreIndex создаст автоматически SimpleVectorStore
-            return None
+            client = qdrant_client.QdrantClient(
+                host=settings.qdrant_host,    # localhost
+                port=settings.qdrant_port,    # 6333
+                timeout=30,                   # Таймаут соединения
+                prefer_grpc=False            # Используем HTTP вместо gRPC
+            )
+            
+            # Проверяем существование коллекции и создаем если нужно
+            collection_name = settings.qdrant_collection_name
+            try:
+                client.get_collection(collection_name)
+                logger.info(f"✅ Коллекция '{collection_name}' уже существует")
+            except Exception:
+                # Коллекция не существует, создаем её
+                from qdrant_client.models import Distance, VectorParams
+                client.create_collection(
+                    collection_name=collection_name,
+                    vectors_config=VectorParams(
+                        size=1536,  # Размер векторов Azure OpenAI embeddings
+                        distance=Distance.COSINE
+                    )
+                )
+                logger.info(f"✅ Создана новая коллекция '{collection_name}'")
+            
+            vector_store = QdrantVectorStore(
+                client=client,
+                collection_name=collection_name
+            )
+            
+            logger.info(f"✅ Используется QdrantVectorStore: {settings.qdrant_host}:{settings.qdrant_port}/{collection_name}")
+            return vector_store
             
         except Exception as e:
-            logger.error(f"Критическая ошибка создания временного vector store: {e}")
+            logger.error(f"❌ Ошибка подключения к Qdrant: {e}")
             raise
 
     def _get_vector_store_lazy(self) -> Any:
@@ -127,64 +156,46 @@ class LlamaIndexService:
         return self._vector_store
 
     def _get_index(self, namespace: str) -> VectorStoreIndex:
-        """Получение или создание индекса для namespace."""
+        """Получение или создание индекса для namespace (обновлено для Qdrant)."""
         if namespace not in self._indices:
             vector_store = self._get_vector_store_lazy()
+            storage_context = StorageContext.from_defaults(vector_store=vector_store)
             
-            if vector_store is None:
-                # Создаем in-memory индекс и загружаем существующие документы
-                logger.warning("Используем временное in-memory векторное хранилище для отладки")
-                
-                # Получаем все chunks из базы для данного namespace через join с documents
-                chunks = self.db.query(DocumentChunk).join(DBDocument).filter(
-                    DBDocument.namespace == namespace,
-                    DBDocument.is_active == True
-                ).all()
-                
-                llama_docs = []
-                for chunk in chunks:
-                    # Восстанавливаем LlamaIndex документы из чанков
-                    llama_doc = Document(
-                        text=chunk.content,
-                        metadata={
-                            "title": chunk.document.title,
-                            "source_type": chunk.document.source_type,
-                            "namespace": chunk.document.namespace,
-                            "document_id": chunk.document.id,
-                            "chunk_index": chunk.chunk_index,
-                            "vector_id": chunk.vector_id,
-                            **(chunk.document.metadata_json or {})
-                        }
-                    )
-                    llama_docs.append(llama_doc)
-                
-                self._indices[namespace] = VectorStoreIndex.from_documents(llama_docs)
-                logger.info(f"Создан in-memory индекс для namespace: {namespace} с {len(llama_docs)} чанками")
-            else:
-                # Создаем storage context с фильтром по namespace
-                storage_context = StorageContext.from_defaults(
-                    vector_store=vector_store
-                )
-                
-                # Создаем индекс из существующего vector store
+            # Пытаемся загрузить существующий индекс из Qdrant
+            try:
                 self._indices[namespace] = VectorStoreIndex.from_vector_store(
                     vector_store=vector_store,
                     storage_context=storage_context
                 )
-                logger.info(f"Создан индекс для namespace: {namespace}")
+                logger.info(f"✅ Загружен существующий Qdrant индекс для namespace: {namespace}")
+            except Exception as e:
+                # Если коллекция пуста или не существует, создаем новый индекс
+                logger.info(f"Создаем новый Qdrant индекс для namespace: {namespace} (причина: {e})")
+                self._indices[namespace] = VectorStoreIndex(
+                    [],
+                    storage_context=storage_context
+                )
+                logger.info(f"✅ Создан новый Qdrant индекс для namespace: {namespace}")
             
         return self._indices[namespace]
 
     def _get_chat_engine(self, namespace: str, session_id: Optional[str] = None):
-        """Получение chat engine для namespace."""
+        """Получение chat engine для namespace с фильтрацией релевантности."""
         cache_key = f"{namespace}:{session_id or 'default'}"
         
         if cache_key not in self._chat_engines:
             index = self._get_index(namespace)
             
-            # Создаем chat engine с встроенной функциональностью
+            # Настройка постпроцессоров для фильтрации релевантности
+            node_postprocessors = [
+                SimilarityPostprocessor(similarity_cutoff=0.75)  # Тот же фильтр что и в query
+            ]
+            
+            # Создаем chat engine с фильтрацией релевантности
             chat_engine = index.as_chat_engine(
                 chat_mode="context",
+                similarity_top_k=10,  # Увеличиваем до фильтрации
+                node_postprocessors=node_postprocessors,
                 verbose=True
             )
             
@@ -198,7 +209,7 @@ class LlamaIndexService:
         namespace: str = "default"
     ) -> DBDocument:
         """
-        Загрузка и обработка документа через встроенный IngestionPipeline.
+        Загрузка и обработка документа через IngestionPipeline (исправлено согласно спецификации).
         """
         try:
             # Извлечение текста из файла
@@ -224,8 +235,8 @@ class LlamaIndexService:
                 "filename": file.filename,
                 "content_length": len(cleaned_text),
                 "content_preview": cleaned_text[:200] + "..." if len(cleaned_text) > 200 else cleaned_text,
-                "upload_source": "file_upload",  # можно будет добавить web_scraping и др.
-                "language": "ru",  # можно добавить определение языка
+                "upload_source": "file_upload",
+                "language": "ru",
             }
             
             llama_doc = Document(
@@ -233,12 +244,26 @@ class LlamaIndexService:
                 metadata=rich_metadata
             )
             
-            # Создание индекса и добавление документа
-            index = self._get_index(namespace)
-            index.insert(llama_doc)
+            # Получаем vector store для pipeline
+            vector_store = self._get_vector_store_lazy()
             
-            # Подсчет чанков (приблизительно)
-            chunk_count = max(1, len(cleaned_text) // settings.max_chunk_size)
+            # ✅ ИСПРАВЛЕНО: Создание pipeline для правильного чанкинга
+            pipeline = IngestionPipeline(
+                transformations=[
+                    SentenceSplitter(
+                        chunk_size=settings.max_chunk_size,    # 1024
+                        chunk_overlap=settings.chunk_overlap   # 200
+                    ),
+                    self.embed_model,
+                ],
+                vector_store=vector_store,
+            )
+            
+            # Обработка документа через pipeline (это создаст правильные чанки)
+            nodes = pipeline.run(documents=[llama_doc])
+            chunk_count = len(nodes)
+            
+            logger.info(f"✅ IngestionPipeline создал {chunk_count} чанков из документа '{title}'")
             
             # Сохранение метаданных в БД
             db_document = DBDocument(
@@ -248,24 +273,25 @@ class LlamaIndexService:
                 source_url=file.filename,
                 content_hash=str(hash(cleaned_text)),
                 vector_id=str(uuid.uuid4()),
-                chunks_count=chunk_count,
-                metadata_json=rich_metadata  # Сохраняем все богатые метаданные
+                chunks_count=chunk_count,  # Реальное количество чанков
+                metadata_json=rich_metadata
             )
             
             self.db.add(db_document)
             self.db.commit()
             self.db.refresh(db_document)
             
-            # Создаем чанки в базе данных для последующего восстановления индекса
-            # Используем тот же текст, что и в LlamaIndex документе
-            chunk = DocumentChunk(
-                document_id=db_document.id,
-                chunk_index=0,
-                content=cleaned_text,
-                vector_id=str(uuid.uuid4()),
-                metadata_json=rich_metadata
-            )
-            self.db.add(chunk)
+            # Создаем чанки в базе данных для каждого node
+            for i, node in enumerate(nodes):
+                chunk = DocumentChunk(
+                    document_id=db_document.id,
+                    chunk_index=i,
+                    content=node.text,
+                    vector_id=node.node_id,
+                    metadata_json={**rich_metadata, "chunk_index": i}
+                )
+                self.db.add(chunk)
+            
             self.db.commit()
             
             # Очистка кэша для namespace
@@ -277,12 +303,12 @@ class LlamaIndexService:
             for key in keys_to_remove:
                 del self._chat_engines[key]
             
-            logger.info(f"Документ '{title}' загружен в namespace '{namespace}', создано {chunk_count} чанков")
+            logger.info(f"✅ Документ '{title}' загружен в namespace '{namespace}', создано {chunk_count} чанков через IngestionPipeline")
             
             return db_document
             
         except Exception as e:
-            logger.error(f"Ошибка загрузки документа: {e}")
+            logger.error(f"❌ Ошибка загрузки документа: {e}")
             self.db.rollback()
             raise
 
@@ -340,20 +366,27 @@ class LlamaIndexService:
         namespace: str = "default"
     ) -> Dict[str, Any]:
         """
-        Простой запрос без сохранения контекста через QueryEngine.
+        Простой запрос с фильтрацией релевантности (обновлено согласно спецификации).
         """
         try:
             index = self._get_index(namespace)
             
-            # Создание query engine
+            # Настройка постпроцессоров для фильтрации релевантности
+            node_postprocessors = [
+                SimilarityPostprocessor(similarity_cutoff=0.75)  # Фильтр релевантности
+            ]
+            
+            # Создание query engine с фильтрацией
             query_engine = index.as_query_engine(
-                similarity_top_k=settings.max_retrieval_results
+                similarity_top_k=10,  # Увеличиваем до фильтрации
+                node_postprocessors=node_postprocessors,
+                verbose=True
             )
             
             # Выполнение запроса
             response = query_engine.query(question)
             
-            # Извлечение источников
+            # Извлечение источников с улучшенной информацией
             sources = []
             if hasattr(response, 'source_nodes') and response.source_nodes:
                 for node in response.source_nodes:
@@ -361,16 +394,21 @@ class LlamaIndexService:
                         sources.append({
                             "document_title": node.metadata.get("title", "Unknown"),
                             "source_type": node.metadata.get("source_type", "unknown"),
-                            "score": getattr(node, 'score', 0.0)
+                            "score": round(getattr(node, 'score', 0.0), 3),  # Округляем для читаемости
+                            "document_id": node.metadata.get("document_id"),
+                            "chunk_index": node.metadata.get("chunk_index", 0)
                         })
+            
+            logger.info(f"✅ Query выполнен, найдено {len(sources)} релевантных источников (>0.75)")
             
             return {
                 "response": str(response),
-                "sources": sources
+                "sources": sources,
+                "total_sources": len(sources)  # Добавляем счетчик для отладки
             }
             
         except Exception as e:
-            logger.error(f"Ошибка запроса: {e}")
+            logger.error(f"❌ Ошибка запроса: {e}")
             raise
 
     async def get_documents(
