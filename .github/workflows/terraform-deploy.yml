@@ -30,9 +30,7 @@ jobs:
     - name: Configure Azure credentials
       uses: azure/login@v1
       with:
-        client-id: ${{ secrets.AZURE_CLIENT_ID }}
-        tenant-id: ${{ secrets.AZURE_TENANT_ID }}
-        subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+        creds: ${{ secrets.AZURE_SERVICE_PRINCIPAL }}
         
     - name: Terraform Init
       working-directory: terraform
@@ -45,10 +43,6 @@ jobs:
     - name: Terraform Plan
       working-directory: terraform
       env:
-        ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
-        ARM_CLIENT_SECRET: ${{ secrets.AZURE_SERVICE_PRINCIPAL_SECRET }}
-        ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
-        ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
         TF_VAR_subscription_id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
         TF_VAR_container_registry_username: ${{ secrets.ACR_USERNAME }}
         TF_VAR_container_registry_password: ${{ secrets.ACR_PASSWORD }}
@@ -122,9 +116,7 @@ jobs:
     - name: Configure Azure credentials
       uses: azure/login@v1
       with:
-        client-id: ${{ secrets.AZURE_CLIENT_ID }}
-        tenant-id: ${{ secrets.AZURE_TENANT_ID }}
-        subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+        creds: ${{ secrets.AZURE_SERVICE_PRINCIPAL }}
         
     - name: Terraform Init
       working-directory: terraform
@@ -133,10 +125,6 @@ jobs:
     - name: Terraform Apply
       working-directory: terraform
       env:
-        ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
-        ARM_CLIENT_SECRET: ${{ secrets.AZURE_SERVICE_PRINCIPAL_SECRET }}
-        ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
-        ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
         TF_VAR_subscription_id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
         TF_VAR_container_registry_username: ${{ secrets.ACR_USERNAME }}
         TF_VAR_container_registry_password: ${{ secrets.ACR_PASSWORD }}
@@ -234,9 +222,7 @@ jobs:
     - name: Configure Azure credentials
       uses: azure/login@v1
       with:
-        client-id: ${{ secrets.AZURE_CLIENT_ID }}
-        tenant-id: ${{ secrets.AZURE_TENANT_ID }}
-        subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+        creds: ${{ secrets.AZURE_SERVICE_PRINCIPAL }}
         
     - name: Terraform Init
       working-directory: terraform
@@ -245,10 +231,6 @@ jobs:
     - name: Terraform Apply (Manual)
       working-directory: terraform
       env:
-        ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
-        ARM_CLIENT_SECRET: ${{ secrets.AZURE_SERVICE_PRINCIPAL_SECRET }}
-        ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
-        ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
         TF_VAR_subscription_id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
         TF_VAR_container_registry_username: ${{ secrets.REGISTRY_USERNAME }}
         TF_VAR_container_registry_password: ${{ secrets.REGISTRY_PASSWORD }}
