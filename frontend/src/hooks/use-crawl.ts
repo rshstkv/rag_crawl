@@ -39,20 +39,27 @@ export const useCrawl = (options?: UseCrawlOptions) => {
         setError(null);
         setProgress(null);
 
+        if (typeof window === 'undefined') {
+            // Не выполняем на сервере
+            return;
+        }
+
         try {
+            const params = new URLSearchParams({
+                url: config.url,
+                max_depth: config.maxDepth.toString(),
+                max_pages: config.maxPages.toString(),
+                browser_type: config.browserType,
+                wait_until: config.waitUntil,
+                exclude_external_links: config.excludeExternalLinks.toString(),
+                exclude_external_images: config.excludeExternalImages.toString(),
+                word_count_threshold: config.wordCountThreshold.toString(),
+                page_timeout: config.pageTimeout.toString(),
+                namespace: config.namespace,
+            });
+
             const eventSource = new EventSource(
-                `/api/crawl/start?${new URLSearchParams({
-                    url: config.url,
-                    max_depth: config.maxDepth.toString(),
-                    max_pages: config.maxPages.toString(),
-                    browser_type: config.browserType,
-                    wait_until: config.waitUntil,
-                    exclude_external_links: config.excludeExternalLinks.toString(),
-                    exclude_external_images: config.excludeExternalImages.toString(),
-                    word_count_threshold: config.wordCountThreshold.toString(),
-                    page_timeout: config.pageTimeout.toString(),
-                    namespace: config.namespace,
-                })}`,
+                `/api/crawl/start?${params.toString()}`,
                 {
                     withCredentials: false,
                 }
