@@ -13,7 +13,7 @@ import os
 
 from .config import settings
 from .database.connection import create_tables
-from .api import chat, documents, health
+from .api import chat, documents, health, crawl
 
 # Настройка логирования
 logging.basicConfig(
@@ -72,6 +72,7 @@ app.add_middleware(
 app.include_router(chat.router, prefix="/api/chat", tags=["chat"])
 app.include_router(documents.router, prefix="/api/documents", tags=["documents"])
 app.include_router(health.router, prefix="/api", tags=["health"])
+app.include_router(crawl.router, tags=["crawl"])
 
 # Корневой endpoint с информацией о сервисе
 @app.get("/")

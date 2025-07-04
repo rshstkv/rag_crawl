@@ -51,6 +51,18 @@ class Settings(BaseSettings):
     gradio_server_name: str = Field(default="0.0.0.0", env="GRADIO_SERVER_NAME")
     gradio_server_port: int = Field(default=7860, env="GRADIO_SERVER_PORT")
     
+    # Crawl4AI Configuration
+    crawl4ai_api_url: str = Field(
+        default="https://crawl4ai-dev--2wk9hbc.jollystone-8735f85a.westeurope.azurecontainerapps.io/api/v1",
+        env="CRAWL4AI_API_URL"
+    )
+    crawl4ai_timeout: int = Field(default=300, env="CRAWL4AI_TIMEOUT")
+    max_concurrent_crawls: int = Field(default=3, env="MAX_CONCURRENT_CRAWLS")
+    default_crawl_depth: int = Field(default=3, env="DEFAULT_CRAWL_DEPTH")
+    default_max_pages: int = Field(default=50, env="DEFAULT_MAX_PAGES")
+    web_content_chunk_size: int = Field(default=1024, env="WEB_CONTENT_CHUNK_SIZE")
+    web_content_chunk_overlap: int = Field(default=200, env="WEB_CONTENT_CHUNK_OVERLAP")
+    
     # Security (for future versions)
     secret_key: str = Field(
         default="your-secret-key-change-in-production", env="SECRET_KEY"

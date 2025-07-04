@@ -29,13 +29,19 @@ class Document(Base):
     
     id = Column(Integer, primary_key=True, autoincrement=True)
     title = Column(String(500), nullable=False)
-    source_type = Column(String(50), nullable=False)  # pdf, txt, docx, etc.
+    source_type = Column(String(50), nullable=False)  # pdf, txt, docx, web, etc.
     namespace = Column(String(255), nullable=False)
     source_url = Column(Text, nullable=True)
     content_hash = Column(String(64), nullable=False)  # SHA256 для обнаружения изменений
     vector_id = Column(String(255), nullable=True)  # UUID для связи с Qdrant
     chunks_count = Column(Integer, default=0)  # Количество chunks
     metadata_json = Column("metadata", JSON, nullable=True)  # Дополнительные метаданные
+    
+    # Поля для веб-кроулинга
+    crawl_depth = Column(Integer, nullable=True)  # Глубина кроулинга
+    crawl_task_id = Column(String(255), nullable=True)  # ID задачи кроулинга
+    crawl_metadata = Column(JSON, nullable=True)  # Метаданные кроулинга
+    
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
     is_active = Column(Boolean, default=True)
@@ -49,6 +55,10 @@ class Document(Base):
         Index("idx_documents_content_hash", "content_hash"),
         Index("idx_documents_is_active", "is_active"),
         Index("idx_documents_created_at", "created_at"),
+        Index("idx_documents_source_type", "source_type"),
+        Index("idx_documents_source_url", "source_url"),
+        Index("idx_documents_crawl_task_id", "crawl_task_id"),
+        Index("idx_documents_namespace_source", "namespace", "source_type"),
     )
     
     def __repr__(self) -> str:

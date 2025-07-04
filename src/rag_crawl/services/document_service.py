@@ -74,28 +74,66 @@ class DocumentService:
 
     def get_documents(
         self, 
-        namespace: Optional[str] = None
+        namespace: Optional[str] = None,
+        source_type: Optional[str] = None
     ) -> List[Document]:
         """
         Получение списка документов.
         
         Args:
             namespace: Опциональный фильтр по пространству имен
+            source_type: Опциональный фильтр по типу источника (web, pdf, txt, etc.)
             
         Returns:
             Список документов
         """
         try:
-            query = self._db.query(Document)
+            query = self._db.query(Document).filter(Document.is_active == True)
             
             if namespace:
                 query = query.filter(Document.namespace == namespace)
+            
+            if source_type:
+                query = query.filter(Document.source_type == source_type)
                 
             documents = query.order_by(Document.created_at.desc()).all()
             return documents
             
         except Exception as e:
             logger.error(f"Ошибка получения списка документов: {e}")
+            raise
+
+    def get_web_documents(self, namespace: Optional[str] = None) -> List[Document]:
+        """
+        Получение веб-документов.
+        
+        Args:
+            namespace: Опциональный фильтр по пространству имен
+            
+        Returns:
+            Список веб-документов
+        """
+        return self.get_documents(namespace=namespace, source_type="web")
+
+    def get_documents_by_crawl_task(self, task_id: str) -> List[Document]:
+        """
+        Получение документов по ID задачи кроулинга.
+        
+        Args:
+            task_id: ID задачи кроулинга
+            
+        Returns:
+            Список документов созданных этой задачей
+        """
+        try:
+            documents = self._db.query(Document).filter(
+                Document.crawl_task_id == task_id,
+                Document.is_active == True
+            ).order_by(Document.created_at.desc()).all()
+            return documents
+            
+        except Exception as e:
+            logger.error(f"Ошибка получения документов для задачи {task_id}: {e}")
             raise
 
     def get_document(self, document_id: int) -> Optional[Document]:
@@ -140,5 +178,67 @@ class DocumentService:
             
         except Exception as e:
             logger.error(f"Ошибка удаления документа {document_id}: {e}")
+            self._db.rollback()
+            raise
+
+    def delete_documents_by_crawl_task(self, task_id: str) -> int:
+        """
+        Удаление всех документов созданных определенной задачей кроулинга.
+        
+        Args:
+            task_id: ID задачи кроулинга
+            
+        Returns:
+            Количество удаленных документов
+        """
+        try:
+            documents = self._db.query(Document).filter(
+                Document.crawl_task_id == task_id
+            ).all()
+            
+            count = len(documents)
+            
+            for document in documents:
+                self._db.delete(document)
+            
+            self._db.commit()
+            
+            logger.info(f"Удалено {count} документов для задачи {task_id}")
+            return count
+            
+        except Exception as e:
+            logger.error(f"Ошибка удаления документов для задачи {task_id}: {e}")
+            self._db.rollback()
+            raise
+
+    def update_document_metadata(self, document_id: int, metadata: Dict[str, Any]) -> bool:
+        """
+        Обновление метаданных документа.
+        
+        Args:
+            document_id: ID документа
+            metadata: Новые метаданные
+            
+        Returns:
+            True, если документ успешно обновлен
+        """
+        try:
+            document = self._db.query(Document).filter(Document.id == document_id).first()
+            
+            if not document:
+                return False
+            
+            # Объединяем существующие метаданные с новыми
+            current_metadata = document.metadata_json or {}
+            current_metadata.update(metadata)
+            document.metadata_json = current_metadata
+            
+            self._db.commit()
+            
+            logger.info(f"Метаданные документа {document_id} обновлены")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Ошибка обновления метаданных документа {document_id}: {e}")
             self._db.rollback()
             raise 
