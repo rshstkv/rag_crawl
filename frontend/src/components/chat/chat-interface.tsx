@@ -23,7 +23,6 @@ export function ChatInterface({ namespace = 'default', onNamespaceChange }: Chat
         isLoading,
         error,
         sendMessage,
-        sendQuery,
         clearChat,
         changeNamespace
     } = useChat(namespace);
@@ -44,11 +43,7 @@ export function ChatInterface({ namespace = 'default', onNamespaceChange }: Chat
         e.preventDefault();
         if (!inputValue.trim() || isLoading) return;
 
-        if (useQueryMode) {
-            await sendQuery(inputValue);
-        } else {
-            await sendMessage(inputValue);
-        }
+        await sendMessage(inputValue);
         setInputValue('');
     };
 
