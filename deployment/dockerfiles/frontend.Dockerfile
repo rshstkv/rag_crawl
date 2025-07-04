@@ -10,6 +10,8 @@ WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY frontend/ ./
 ENV NEXT_TELEMETRY_DISABLED=1
+# Отладка: смотрим, какие файлы скопированы
+RUN ls -laR
 RUN npm run build
 
 # Production image, copy all the files and run next
