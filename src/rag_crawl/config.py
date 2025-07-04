@@ -53,7 +53,7 @@ class Settings(BaseSettings):
     
     # Crawl4AI Configuration
     crawl4ai_api_url: str = Field(
-        default="https://crawl4ai-dev--2wk9hbc.jollystone-8735f85a.westeurope.azurecontainerapps.io/api/v1",
+        default="https://crawl4ai-dev.delightfulplant-c2330751.westeurope.azurecontainerapps.io/api/v1",
         env="CRAWL4AI_API_URL"
     )
     crawl4ai_timeout: int = Field(default=300, env="CRAWL4AI_TIMEOUT")

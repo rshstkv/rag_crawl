@@ -33,8 +33,8 @@ class CrawlConfig(BaseModel):
     url: HttpUrl
     max_depth: int = Field(default=3, ge=1, le=10)
     max_pages: int = Field(default=50, ge=1, le=5000)
-    browser_type: str = Field(default="chromium", regex="^(chromium|firefox|webkit)$")
-    wait_until: str = Field(default="networkidle", regex="^(networkidle|domcontentloaded|load)$")
+    browser_type: str = Field(default="chromium", pattern="^(chromium|firefox|webkit)$")
+    wait_until: str = Field(default="networkidle", pattern="^(networkidle|domcontentloaded|load)$")
     exclude_external_links: bool = Field(default=False)
     exclude_external_images: bool = Field(default=False)
     word_count_threshold: int = Field(default=5, ge=1)
