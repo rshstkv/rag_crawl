@@ -23,25 +23,27 @@ export interface UploadResponse {
 export interface DocumentChunk {
     id: number;
     document_id: number;
+    chunk_index: number;
     content: string;
     vector_id: string;
     metadata?: Record<string, unknown>;
 }
 
 export interface DocumentContent {
-    id: number;
-    title: string;
-    source_url?: string;
-    source_type: string;
-    content_hash: string;
-    namespace: string;
-    created_at: string;
-    updated_at: string;
-    chunks: DocumentChunk[];
+    document: {
+        id: number;
+        title: string;
+        source_type: string;
+        namespace: string;
+        created_at: string;
+        chunks_count: number;
+        metadata: Record<string, unknown>;
+    };
+    full_text: string;
 }
 
 export interface SystemDiagnostics {
-    qdrant_info: {
+    qdrant: {
         collection_name: string;
         points_count: number;
         vectors_count: number;
@@ -51,9 +53,13 @@ export interface SystemDiagnostics {
             size: number;
         };
     };
-    db_info: {
+    postgresql: {
         total_documents: number;
         total_chunks: number;
+    };
+    cache: {
+        indices_cached: number;
+        chat_engines_cached: number;
     };
     settings: Record<string, unknown>;
 }
