@@ -69,6 +69,13 @@ export interface ChatResponse {
     session_id?: string;
 }
 
+export interface ReindexResponse {
+    message: string;
+    documents_processed: number;
+    total_documents: number;
+    errors?: string[];
+}
+
 // #endregion
 
 class ApiClient {
@@ -131,6 +138,30 @@ class ApiClient {
         return this.request<DocumentContent>(`/documents/${documentId}/content`);
     }
 
+    async getDocumentChunks(documentId: number): Promise<{ chunks: DocumentChunk[] }> {
+        return this.request<{ chunks: DocumentChunk[] }>(`/documents/${documentId}/chunks`);
+    }
+
+    async reindexDocument(documentId: number): Promise<ReindexResponse> {
+        return this.request<ReindexResponse>(`/documents/${documentId}/reindex`, {
+            method: 'POST',
+        });
+    }
+
+    async reindexBatchDocuments(documentIds: number[]): Promise<ReindexResponse> {
+        return this.request<ReindexResponse>(`/documents/reindex-batch`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ document_ids: documentIds }),
+        });
+    }
+
+    async reindexAllDocuments(): Promise<ReindexResponse> {
+        return this.request<ReindexResponse>('/documents/reindex-all', {
+            method: 'POST',
+        });
+    }
+
     // Chat Endpoints
     async chat(message: string, namespace: string = "default", session_id?: string): Promise<ChatResponse> {
         return this.request<ChatResponse>('/chat/', {
@@ -141,7 +172,6 @@ class ApiClient {
             body: JSON.stringify({ message, namespace, session_id }),
         });
     }
-
 
     // System Endpoints
     async getSystemDiagnostics(): Promise<SystemDiagnostics> {
