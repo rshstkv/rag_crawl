@@ -1,49 +1,35 @@
-FROM node:18-slim AS builder
-
+# Install dependencies only when needed
+FROM node:18-alpine AS deps
 WORKDIR /app
+COPY frontend/package.json frontend/package-lock.json* ./
+RUN npm ci --prefer-offline --no-audit
 
-# Устанавливаем системные зависимости для сборки
-RUN apt-get update && apt-get install -y \
-    python3 \
-    make \
-    g++ \
-    && rm -rf /var/lib/apt/lists/*
-
-# Копируем package.json и package-lock.json
-COPY frontend/package*.json ./
-
-# Очищаем кэш и устанавливаем зависимости
-RUN npm cache clean --force
-RUN npm ci --no-optional
-
-# Копируем исходный код
-COPY frontend/ .
-
-# Собираем приложение с правильными настройками
-ENV NODE_OPTIONS="--max-old-space-size=4096 --openssl-legacy-provider"
+# Rebuild the source code only when needed
+FROM node:18-alpine AS builder
+WORKDIR /app
+COPY --from=deps /app/node_modules ./node_modules
+COPY frontend/ ./
 ENV NEXT_TELEMETRY_DISABLED=1
-ENV NODE_ENV=production
 RUN npm run build
 
-# Этап выполнения
-FROM node:18-slim AS runner
-
+# Production image, copy all the files and run next
+FROM node:18-alpine AS runner
 WORKDIR /app
 
-# Создаем пользователя для безопасности  
-RUN groupadd --system --gid 1001 nodejs
-RUN useradd --system --uid 1001 --gid nodejs nextjs
+ENV NODE_ENV=production
+ENV NEXT_TELEMETRY_DISABLED=1
 
-# Копируем необходимые файлы из builder
+# Create non-root user
+RUN addgroup -g 1001 -S nodejs && adduser -S nextjs -u 1001 -G nodejs
+
+# Copy built application and static files
 COPY --from=builder /app/public ./public
-COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
-COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
+COPY --from=builder /app/.next ./.next
+COPY --from=builder /app/node_modules ./node_modules
+COPY --from=builder /app/package.json ./package.json
 
-# Переключаемся на пользователя nextjs
 USER nextjs
 
-# Открываем порт
 EXPOSE 3000
 
-# Запускаем приложение
-CMD ["node", "server.js"] 
+CMD ["npm", "start"] 
