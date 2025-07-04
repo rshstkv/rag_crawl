@@ -1,6 +1,6 @@
 'use client';
 
-import { apiClient, ChatRequest, QueryRequest } from '@/lib/api';
+import { apiClient } from '@/lib/api';
 import { useCallback, useState } from 'react';
 
 export interface Message {
@@ -53,13 +53,7 @@ export function useChat(initialNamespace?: string) {
         setError(null);
 
         try {
-            const request: ChatRequest = {
-                message: content.trim(),
-                namespace,
-                session_id: sessionId,
-            };
-
-            const response = await apiClient.chat(request);
+            const response = await apiClient.chat(content.trim(), namespace, sessionId);
 
             const assistantMessage: Message = {
                 id: Math.random().toString(36),
@@ -87,6 +81,8 @@ export function useChat(initialNamespace?: string) {
         }
     }, [namespace, sessionId, isLoading]);
 
+    // sendQuery закомментирован, так как метода query нет в apiClient
+    /*
     const sendQuery = useCallback(async (content: string) => {
         if (!content.trim() || isLoading) return;
 
@@ -102,12 +98,7 @@ export function useChat(initialNamespace?: string) {
         setError(null);
 
         try {
-            const request: QueryRequest = {
-                question: content.trim(),
-                namespace,
-            };
-
-            const response = await apiClient.query(request);
+            const response = await apiClient.query(content.trim(), namespace);
 
             const assistantMessage: Message = {
                 id: Math.random().toString(36),
@@ -135,6 +126,7 @@ export function useChat(initialNamespace?: string) {
             setIsLoading(false);
         }
     }, [namespace, isLoading]);
+    */
 
     const clearChat = useCallback(() => {
         setMessages([]);
@@ -154,7 +146,7 @@ export function useChat(initialNamespace?: string) {
         namespace,
         sessionId,
         sendMessage,
-        sendQuery,
+        // sendQuery,
         clearChat,
         changeNamespace,
     };
