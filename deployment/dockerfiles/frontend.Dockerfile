@@ -2,17 +2,27 @@ FROM node:18-slim AS builder
 
 WORKDIR /app
 
+# Устанавливаем системные зависимости для сборки
+RUN apt-get update && apt-get install -y \
+    python3 \
+    make \
+    g++ \
+    && rm -rf /var/lib/apt/lists/*
+
 # Копируем package.json и package-lock.json
 COPY frontend/package*.json ./
 
-# Устанавливаем зависимости
-RUN npm ci
+# Очищаем кэш и устанавливаем зависимости
+RUN npm cache clean --force
+RUN npm ci --no-optional
 
 # Копируем исходный код
 COPY frontend/ .
 
-# Собираем приложение с увеличенной памятью
-ENV NODE_OPTIONS="--max-old-space-size=4096"
+# Собираем приложение с правильными настройками
+ENV NODE_OPTIONS="--max-old-space-size=4096 --openssl-legacy-provider"
+ENV NEXT_TELEMETRY_DISABLED=1
+ENV NODE_ENV=production
 RUN npm run build
 
 # Этап выполнения
