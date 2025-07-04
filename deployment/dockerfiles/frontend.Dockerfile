@@ -11,7 +11,8 @@ RUN npm ci
 # Копируем исходный код
 COPY frontend/ .
 
-# Собираем приложение
+# Собираем приложение с увеличенной памятью
+ENV NODE_OPTIONS="--max-old-space-size=4096"
 RUN npm run build
 
 # Этап выполнения
