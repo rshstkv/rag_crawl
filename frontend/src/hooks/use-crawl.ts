@@ -19,14 +19,20 @@ interface CrawlProgress {
     total: number;
     currentUrl: string;
     status: string;
-    pages: any[];
+    pages: unknown[];
 }
 
-export const useCrawl = () => {
+interface UseCrawlOptions {
+    onCrawlComplete?: () => void;
+}
+
+export const useCrawl = (options?: UseCrawlOptions) => {
     const [isLoading, setIsLoading] = useState(false);
     const [progress, setProgress] = useState<CrawlProgress | null>(null);
     const [error, setError] = useState<string | null>(null);
     const [activeTasks, setActiveTasks] = useState<string[]>([]);
+
+    const { onCrawlComplete } = options || {};
 
     const startCrawl = useCallback(async (config: CrawlConfig) => {
         setIsLoading(true);
@@ -89,6 +95,9 @@ export const useCrawl = () => {
                                 status: 'completed'
                             } : null);
                             eventSource.close();
+                            if (onCrawlComplete) {
+                                onCrawlComplete();
+                            }
                             break;
                         case 'error':
                             setError(data.message || 'Произошла ошибка при кроулинге');
@@ -119,7 +128,7 @@ export const useCrawl = () => {
             setError('Ошибка при запуске кроулинга');
             setIsLoading(false);
         }
-    }, []);
+    }, [onCrawlComplete]);
 
     const stopCrawl = useCallback(async (taskId: string) => {
         try {

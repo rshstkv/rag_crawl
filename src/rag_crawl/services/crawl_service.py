@@ -20,6 +20,7 @@ from fastapi import HTTPException
 
 from ..database.models import Document, DocumentChunk, generate_vector_id
 from ..config import settings
+from .llama_service import LlamaIndexService
 
 logger = logging.getLogger(__name__)
 
@@ -108,10 +109,12 @@ class CrawlService:
     """Сервис для кроулинга веб-сайтов."""
     
     def __init__(self, db: Session):
+        """Инициализация сервиса."""
         self._db = db
         self._crawl_api_url = settings.crawl4ai_api_url
         self._active_tasks: Dict[str, asyncio.Task] = {}
-        self._http_client = httpx.AsyncClient(timeout=settings.crawl4ai_timeout)
+        self._http_client = httpx.AsyncClient(timeout=30.0)
+        self._llama_service = LlamaIndexService(db)
         
     async def __aenter__(self):
         """Async context manager entry."""
@@ -120,6 +123,7 @@ class CrawlService:
     async def __aexit__(self, exc_type, exc_val, exc_tb):
         """Async context manager exit."""
         await self._http_client.aclose()
+        self._llama_service.db.close()
 
     async def start_crawl(self, config: CrawlConfig) -> AsyncGenerator[ServerSentEvent, None]:
         """Запускает кроулинг с стримингом результатов."""
@@ -224,6 +228,10 @@ class CrawlService:
             # Создание документа
             document = await self._create_document_from_web_content(document_data)
             crawl_logger.info(f"Документ создан: {document.id} для URL: {page_data['url']}")
+            
+            # Интеграция индексации в векторную базу после создания документа
+            self._llama_service.index_document(document)
+            crawl_logger.info(f"Документ {document.id} проиндексирован в векторную базу")
             
         except Exception as e:
             crawl_logger.error(f"Ошибка при обработке страницы {page_data.get('url')}: {e}")
@@ -450,10 +458,4 @@ class CrawlService:
             return result
         except Exception as e:
             crawl_logger.error(f"Ошибка при остановке всех задач: {e}")
-            raise
-
-
-# Dependency injection функция
-def get_crawl_service(db: Session) -> CrawlService:
-    """Создает экземпляр CrawlService."""
-    return CrawlService(db) 
+            raise 

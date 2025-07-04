@@ -2,14 +2,14 @@
 API endpoints для управления кроулингом веб-сайтов.
 """
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request, Query
 from fastapi.responses import StreamingResponse
 from sse_starlette import EventSourceResponse
 from sqlalchemy.orm import Session
 from typing import Dict, Any
 
 from ..database.connection import get_db
-from ..services.crawl_service import CrawlService, CrawlConfig, get_crawl_service
+from ..services.crawl_service import CrawlService, CrawlConfig
 from pydantic import BaseModel
 
 router = APIRouter(prefix="/api/crawl", tags=["crawl"])
@@ -49,26 +49,35 @@ class ActiveTasksResponse(BaseModel):
     count: int
 
 
-@router.post("/start")
+@router.get("/start")
 async def start_crawl(
-    config: CrawlConfigRequest,
-    request: Request,
+    url: str = Query(..., description="URL для кроулинга"),
+    max_depth: int = Query(3, ge=1, le=10, description="Глубина кроулинга"),
+    max_pages: int = Query(50, ge=1, le=5000, description="Максимальное количество страниц"),
+    browser_type: str = Query("chromium", description="Тип браузера"),
+    wait_until: str = Query("networkidle", description="Условие ожидания"),
+    exclude_external_links: bool = Query(False, description="Исключить внешние ссылки"),
+    exclude_external_images: bool = Query(False, description="Исключить внешние изображения"),
+    word_count_threshold: int = Query(5, ge=0, description="Минимальное количество слов"),
+    page_timeout: int = Query(60000, ge=1000, le=300000, description="Таймаут страницы в мс"),
+    namespace: str = Query("default", description="Namespace для индексации"),
+    request: Request = None,
     db: Session = Depends(get_db)
 ):
     """Запускает кроулинг с Server-Sent Events."""
     try:
         # Создание конфигурации кроулинга
         crawl_config = CrawlConfig(
-            url=config.url,
-            max_depth=config.max_depth,
-            max_pages=config.max_pages,
-            browser_type=config.browser_type,
-            wait_until=config.wait_until,
-            exclude_external_links=config.exclude_external_links,
-            exclude_external_images=config.exclude_external_images,
-            word_count_threshold=config.word_count_threshold,
-            page_timeout=config.page_timeout,
-            namespace=config.namespace
+            url=url,
+            max_depth=max_depth,
+            max_pages=max_pages,
+            browser_type=browser_type,
+            wait_until=wait_until,
+            exclude_external_links=exclude_external_links,
+            exclude_external_images=exclude_external_images,
+            word_count_threshold=word_count_threshold,
+            page_timeout=page_timeout,
+            namespace=namespace
         )
         
         # Создание сервиса кроулинга

@@ -43,8 +43,7 @@ export function CrawlTaskManager() {
         stopCrawl,
         pauseCrawl,
         resumeCrawl,
-        stopAllCrawls,
-        getActiveTasks
+        stopAllCrawls
     } = useCrawl();
 
     const fetchTasks = async () => {
@@ -215,7 +214,7 @@ export function CrawlTaskManager() {
                     <div className="text-center py-8 text-muted-foreground">
                         <Globe className="h-12 w-12 mx-auto mb-4 opacity-50" />
                         <p>Нет активных задач кроулинга</p>
-                        <p className="text-sm">Запустите новую задачу на вкладке "Парсинг веб-сайта"</p>
+                        <p className="text-sm">Запустите новую задачу на вкладке &quot;Парсинг веб-сайта&quot;</p>
                     </div>
                 ) : (
                     <div className="space-y-4">

@@ -120,7 +120,7 @@ export function MessageItem({ message }: MessageItemProps) {
                                                 )}
                                                 {source.content_preview && (
                                                     <div className="text-muted-foreground text-xs italic">
-                                                        "{source.content_preview}"
+                                                        &quot;{source.content_preview}&quot;
                                                     </div>
                                                 )}
                                             </div>

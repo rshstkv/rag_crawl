@@ -26,7 +26,11 @@ interface CrawlConfig {
     namespace: string;
 }
 
-export function WebsiteCrawler() {
+interface WebsiteCrawlerProps {
+    onCrawlComplete?: () => void;
+}
+
+export function WebsiteCrawler({ onCrawlComplete }: WebsiteCrawlerProps) {
     const [config, setConfig] = useState<CrawlConfig>({
         url: '',
         maxDepth: 3,
@@ -52,7 +56,7 @@ export function WebsiteCrawler() {
         pauseCrawl,
         resumeCrawl,
         stopAllCrawls
-    } = useCrawl();
+    } = useCrawl({ onCrawlComplete });
 
     const validateUrl = (url: string): boolean => {
         try {
@@ -418,7 +422,7 @@ export function WebsiteCrawler() {
                             <AlertDescription className="text-green-700">
                                 Парсинг завершен успешно! Обработано {progress.processed} страниц.
                                 {progress.pages && progress.pages.length > 0 && (
-                                    <span> Документы добавлены в namespace "{config.namespace}".</span>
+                                    <span> Документы добавлены в namespace &quot;{config.namespace}&quot;.</span>
                                 )}
                             </AlertDescription>
                         </Alert>

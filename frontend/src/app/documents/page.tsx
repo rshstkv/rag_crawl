@@ -446,7 +446,7 @@ export default function DocumentsPage() {
                                                                 <AlertDialogHeader>
                                                                     <AlertDialogTitle>Подтвердите удаление</AlertDialogTitle>
                                                                     <AlertDialogDescription>
-                                                                        Вы уверены, что хотите удалить документ "{doc.title}"?
+                                                                        Вы уверены, что хотите удалить документ &quot;{doc.title}&quot;?
                                                                         Это действие нельзя отменить.
                                                                     </AlertDialogDescription>
                                                                 </AlertDialogHeader>
@@ -501,7 +501,7 @@ export default function DocumentsPage() {
                                 <TabsContent value="chunks">
                                     <ScrollArea className="h-[600px] w-full">
                                         <div className="space-y-4">
-                                            {documentChunks.map((chunk, index) => (
+                                            {documentChunks.map((chunk) => (
                                                 <Card key={chunk.id}>
                                                     <CardHeader className="pb-2">
                                                         <CardTitle className="text-sm">
