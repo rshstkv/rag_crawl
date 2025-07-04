@@ -1,0 +1,49 @@
+# Azure Configuration
+subscription_id      = "your-azure-subscription-id"
+resource_group_name  = "davai_poigraem"
+location            = "West Europe"
+
+# Container Registry Configuration
+container_registry_name     = "crawl4aiacr6c07cdcc"
+container_registry_username = "crawl4aiacr6c07cdcc"
+container_registry_password = "your-container-registry-password"
+
+# Container App Environment
+container_app_environment_name = "crawl4ai-env"
+
+# Application Configuration
+app_name    = "rag-crawl-app"
+app_version = "latest"
+
+# Database Configuration
+postgres_password = "your-postgres-password"
+postgres_user     = "postgres"
+postgres_database = "rag_crawl"
+
+# Azure OpenAI Configuration
+azure_openai_api_key               = "your-azure-openai-api-key"
+azure_openai_endpoint              = "https://your-openai-instance.openai.azure.com/"
+azure_openai_chat_deployment       = "gpt-4o-depl"
+azure_openai_embedding_deployment  = "text-embedding-ada"
+azure_openai_chat_model           = "gpt-4o"
+azure_openai_embedding_model      = "text-embedding-ada-002"
+azure_openai_api_version          = "2024-05-01-preview"
+
+# Qdrant Configuration
+qdrant_url             = "http://localhost:6333"
+qdrant_collection_name = "documents"
+
+# Scaling Configuration
+min_replicas    = 0
+max_replicas    = 3
+cpu_requests    = 1.0
+memory_requests = "2Gi"
+
+# Container Images Configuration
+frontend_image = "rag-crawl-frontend"
+backend_image  = "rag-crawl-backend"
+nginx_image    = "rag-crawl-nginx"
+
+# Networking Configuration
+target_port       = 80
+external_ingress  = true 

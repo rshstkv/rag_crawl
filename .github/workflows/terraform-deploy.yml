@@ -1,0 +1,260 @@
+name: Terraform Infrastructure Deployment
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+env:
+  AZURE_CONTAINER_REGISTRY: crawl4aiacr6c07cdcc.azurecr.io
+  TF_VERSION: "1.5"
+
+jobs:
+  # Job для Terraform plan (Pull Request)
+  terraform-plan:
+    name: Terraform Plan
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Setup Terraform
+      uses: hashicorp/setup-terraform@v3
+      with:
+        terraform_version: ${{ env.TF_VERSION }}
+        
+    - name: Configure Azure credentials
+      uses: azure/login@v1
+      with:
+        creds: ${{ secrets.AZURE_CREDENTIALS }}
+        
+    - name: Terraform Init
+      working-directory: terraform
+      run: terraform init
+      
+    - name: Terraform Validate
+      working-directory: terraform
+      run: terraform validate
+      
+    - name: Terraform Plan
+      working-directory: terraform
+      env:
+        TF_VAR_subscription_id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+        TF_VAR_container_registry_username: ${{ secrets.REGISTRY_USERNAME }}
+        TF_VAR_container_registry_password: ${{ secrets.REGISTRY_PASSWORD }}
+        TF_VAR_postgres_password: ${{ secrets.POSTGRES_PASSWORD }}
+        TF_VAR_azure_openai_api_key: ${{ secrets.AZURE_OPENAI_API_KEY }}
+        TF_VAR_azure_openai_endpoint: ${{ secrets.AZURE_OPENAI_ENDPOINT }}
+        TF_VAR_azure_openai_chat_deployment: ${{ secrets.AZURE_OPENAI_CHAT_DEPLOYMENT }}
+        TF_VAR_azure_openai_embedding_deployment: ${{ secrets.AZURE_OPENAI_EMBEDDING_DEPLOYMENT }}
+        TF_VAR_azure_openai_chat_model: ${{ secrets.AZURE_OPENAI_CHAT_MODEL }}
+        TF_VAR_azure_openai_embedding_model: ${{ secrets.AZURE_OPENAI_EMBEDDING_MODEL }}
+        TF_VAR_azure_openai_api_version: ${{ secrets.AZURE_OPENAI_API_VERSION }}
+        TF_VAR_app_version: ${{ github.sha }}
+      run: terraform plan -detailed-exitcode
+      
+  # Job для полного деплоя (Push в main)
+  build-and-deploy:
+    name: Build Images and Deploy
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+      
+    - name: Log in to Azure Container Registry
+      uses: docker/login-action@v3
+      with:
+        registry: ${{ env.AZURE_CONTAINER_REGISTRY }}
+        username: ${{ secrets.REGISTRY_USERNAME }}
+        password: ${{ secrets.REGISTRY_PASSWORD }}
+        
+    - name: Build and push Frontend image
+      uses: docker/build-push-action@v5
+      with:
+        context: .
+        file: deployment/dockerfiles/frontend.Dockerfile
+        push: true
+        tags: |
+          ${{ env.AZURE_CONTAINER_REGISTRY }}/rag-crawl-frontend:${{ github.sha }}
+          ${{ env.AZURE_CONTAINER_REGISTRY }}/rag-crawl-frontend:latest
+        cache-from: type=gha
+        cache-to: type=gha,mode=max
+        
+    - name: Build and push Backend image
+      uses: docker/build-push-action@v5
+      with:
+        context: .
+        file: deployment/dockerfiles/backend.Dockerfile
+        push: true
+        tags: |
+          ${{ env.AZURE_CONTAINER_REGISTRY }}/rag-crawl-backend:${{ github.sha }}
+          ${{ env.AZURE_CONTAINER_REGISTRY }}/rag-crawl-backend:latest
+        cache-from: type=gha
+        cache-to: type=gha,mode=max
+        
+    - name: Build and push Nginx image
+      uses: docker/build-push-action@v5
+      with:
+        context: .
+        file: deployment/dockerfiles/nginx.Dockerfile
+        push: true
+        tags: |
+          ${{ env.AZURE_CONTAINER_REGISTRY }}/rag-crawl-nginx:${{ github.sha }}
+          ${{ env.AZURE_CONTAINER_REGISTRY }}/rag-crawl-nginx:latest
+        cache-from: type=gha
+        cache-to: type=gha,mode=max
+        
+    - name: Setup Terraform
+      uses: hashicorp/setup-terraform@v3
+      with:
+        terraform_version: ${{ env.TF_VERSION }}
+        terraform_wrapper: false  # For output parsing
+        
+    - name: Configure Azure credentials
+      uses: azure/login@v1
+      with:
+        creds: ${{ secrets.AZURE_CREDENTIALS }}
+        
+    - name: Terraform Init
+      working-directory: terraform
+      run: terraform init
+      
+    - name: Terraform Apply
+      working-directory: terraform
+      env:
+        TF_VAR_subscription_id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+        TF_VAR_container_registry_username: ${{ secrets.REGISTRY_USERNAME }}
+        TF_VAR_container_registry_password: ${{ secrets.REGISTRY_PASSWORD }}
+        TF_VAR_postgres_password: ${{ secrets.POSTGRES_PASSWORD }}
+        TF_VAR_azure_openai_api_key: ${{ secrets.AZURE_OPENAI_API_KEY }}
+        TF_VAR_azure_openai_endpoint: ${{ secrets.AZURE_OPENAI_ENDPOINT }}
+        TF_VAR_azure_openai_chat_deployment: ${{ secrets.AZURE_OPENAI_CHAT_DEPLOYMENT }}
+        TF_VAR_azure_openai_embedding_deployment: ${{ secrets.AZURE_OPENAI_EMBEDDING_DEPLOYMENT }}
+        TF_VAR_azure_openai_chat_model: ${{ secrets.AZURE_OPENAI_CHAT_MODEL }}
+        TF_VAR_azure_openai_embedding_model: ${{ secrets.AZURE_OPENAI_EMBEDDING_MODEL }}
+        TF_VAR_azure_openai_api_version: ${{ secrets.AZURE_OPENAI_API_VERSION }}
+        TF_VAR_app_version: ${{ github.sha }}
+      run: terraform apply -auto-approve
+      
+    - name: Get Application URL
+      working-directory: terraform
+      id: app_url
+      run: |
+        URL=$(terraform output -raw container_app_url)
+        echo "app_url=$URL" >> $GITHUB_OUTPUT
+        echo "🚀 Application deployed at: $URL"
+        
+    - name: Deployment Summary
+      working-directory: terraform
+      run: |
+        echo "## 🚀 Deployment Summary" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "**Application URL:** $(terraform output -raw container_app_url)" >> $GITHUB_STEP_SUMMARY
+        echo "**Application Version:** $(terraform output -raw app_version)" >> $GITHUB_STEP_SUMMARY
+        echo "**Resource Group:** $(terraform output -raw resource_group_name)" >> $GITHUB_STEP_SUMMARY
+        echo "**Container Registry:** $(terraform output -raw container_registry_login_server)" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "### Deployed Images:" >> $GITHUB_STEP_SUMMARY
+        echo "- Frontend: \`${{ env.AZURE_CONTAINER_REGISTRY }}/rag-crawl-frontend:${{ github.sha }}\`" >> $GITHUB_STEP_SUMMARY
+        echo "- Backend: \`${{ env.AZURE_CONTAINER_REGISTRY }}/rag-crawl-backend:${{ github.sha }}\`" >> $GITHUB_STEP_SUMMARY
+        echo "- Nginx: \`${{ env.AZURE_CONTAINER_REGISTRY }}/rag-crawl-nginx:${{ github.sha }}\`" >> $GITHUB_STEP_SUMMARY
+        
+    - name: Simple Health Check
+      run: |
+        echo "🔍 Basic connectivity check..."
+        URL=$(terraform output -raw container_app_url)
+        echo "Checking: $URL"
+        curl -I "$URL" || echo "⚠️  Application may still be starting up"
+      working-directory: terraform
+
+  # Job для ручного развертывания
+  manual-deploy:
+    name: Manual Deployment
+    runs-on: ubuntu-latest
+    if: github.event_name == 'workflow_dispatch'
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+      
+    - name: Log in to Azure Container Registry
+      uses: docker/login-action@v3
+      with:
+        registry: ${{ env.AZURE_CONTAINER_REGISTRY }}
+        username: ${{ secrets.REGISTRY_USERNAME }}
+        password: ${{ secrets.REGISTRY_PASSWORD }}
+        
+    - name: Build and push all images
+      run: |
+        # Frontend
+        docker buildx build --push \
+          -f deployment/dockerfiles/frontend.Dockerfile \
+          -t ${{ env.AZURE_CONTAINER_REGISTRY }}/rag-crawl-frontend:manual-${{ github.sha }} \
+          -t ${{ env.AZURE_CONTAINER_REGISTRY }}/rag-crawl-frontend:latest \
+          .
+          
+        # Backend  
+        docker buildx build --push \
+          -f deployment/dockerfiles/backend.Dockerfile \
+          -t ${{ env.AZURE_CONTAINER_REGISTRY }}/rag-crawl-backend:manual-${{ github.sha }} \
+          -t ${{ env.AZURE_CONTAINER_REGISTRY }}/rag-crawl-backend:latest \
+          .
+          
+        # Nginx
+        docker buildx build --push \
+          -f deployment/dockerfiles/nginx.Dockerfile \
+          -t ${{ env.AZURE_CONTAINER_REGISTRY }}/rag-crawl-nginx:manual-${{ github.sha }} \
+          -t ${{ env.AZURE_CONTAINER_REGISTRY }}/rag-crawl-nginx:latest \
+          .
+        
+    - name: Setup Terraform
+      uses: hashicorp/setup-terraform@v3
+      with:
+        terraform_version: ${{ env.TF_VERSION }}
+        terraform_wrapper: false
+        
+    - name: Configure Azure credentials
+      uses: azure/login@v1
+      with:
+        creds: ${{ secrets.AZURE_CREDENTIALS }}
+        
+    - name: Terraform Init
+      working-directory: terraform
+      run: terraform init
+      
+    - name: Terraform Apply (Manual)
+      working-directory: terraform
+      env:
+        TF_VAR_subscription_id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+        TF_VAR_container_registry_username: ${{ secrets.REGISTRY_USERNAME }}
+        TF_VAR_container_registry_password: ${{ secrets.REGISTRY_PASSWORD }}
+        TF_VAR_postgres_password: ${{ secrets.POSTGRES_PASSWORD }}
+        TF_VAR_azure_openai_api_key: ${{ secrets.AZURE_OPENAI_API_KEY }}
+        TF_VAR_azure_openai_endpoint: ${{ secrets.AZURE_OPENAI_ENDPOINT }}
+        TF_VAR_azure_openai_chat_deployment: ${{ secrets.AZURE_OPENAI_CHAT_DEPLOYMENT }}
+        TF_VAR_azure_openai_embedding_deployment: ${{ secrets.AZURE_OPENAI_EMBEDDING_DEPLOYMENT }}
+        TF_VAR_azure_openai_chat_model: ${{ secrets.AZURE_OPENAI_CHAT_MODEL }}
+        TF_VAR_azure_openai_embedding_model: ${{ secrets.AZURE_OPENAI_EMBEDDING_MODEL }}
+        TF_VAR_azure_openai_api_version: ${{ secrets.AZURE_OPENAI_API_VERSION }}
+        TF_VAR_app_version: manual-${{ github.sha }}
+      run: terraform apply -auto-approve
+      
+    - name: Manual Deployment Summary
+      working-directory: terraform
+      run: |
+        echo "## 🎯 Manual Deployment Complete" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "**Application URL:** $(terraform output -raw container_app_url)" >> $GITHUB_STEP_SUMMARY
+        echo "**Deployment Tag:** manual-${{ github.sha }}" >> $GITHUB_STEP_SUMMARY 
