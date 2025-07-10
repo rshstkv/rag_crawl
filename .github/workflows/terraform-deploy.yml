@@ -122,6 +122,25 @@ jobs:
       working-directory: terraform
       run: terraform init
       
+    - name: Import existing Container App (if exists)
+      working-directory: terraform
+      env:
+        TF_VAR_subscription_id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+        TF_VAR_container_registry_username: ${{ secrets.ACR_USERNAME }}
+        TF_VAR_container_registry_password: ${{ secrets.ACR_PASSWORD }}
+        TF_VAR_postgres_password: ${{ secrets.POSTGRES_PASSWORD }}
+        TF_VAR_azure_openai_api_key: ${{ secrets.AZURE_OPENAI_API_KEY }}
+        TF_VAR_azure_openai_endpoint: ${{ secrets.AZURE_OPENAI_ENDPOINT }}
+        TF_VAR_azure_openai_chat_deployment: ${{ secrets.AZURE_OPENAI_CHAT_DEPLOYMENT }}
+        TF_VAR_azure_openai_embedding_deployment: ${{ secrets.AZURE_OPENAI_EMBEDDING_DEPLOYMENT }}
+        TF_VAR_azure_openai_chat_model: ${{ secrets.AZURE_OPENAI_CHAT_MODEL }}
+        TF_VAR_azure_openai_embedding_model: ${{ secrets.AZURE_OPENAI_EMBEDDING_MODEL }}
+        TF_VAR_azure_openai_api_version: ${{ secrets.AZURE_OPENAI_API_VERSION }}
+        TF_VAR_app_version: ${{ github.sha }}
+      run: |
+        terraform import azapi_resource.container_app "/subscriptions/${{ secrets.AZURE_SUBSCRIPTION_ID }}/resourceGroups/davai_poigraem/providers/Microsoft.App/containerApps/rag-crawl-app" || echo "Container App not found or already imported"
+      continue-on-error: true
+      
     - name: Terraform Apply
       working-directory: terraform
       env:
@@ -227,6 +246,25 @@ jobs:
     - name: Terraform Init
       working-directory: terraform
       run: terraform init
+      
+    - name: Import existing Container App (if exists) - Manual
+      working-directory: terraform
+      env:
+        TF_VAR_subscription_id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+        TF_VAR_container_registry_username: ${{ secrets.REGISTRY_USERNAME }}
+        TF_VAR_container_registry_password: ${{ secrets.REGISTRY_PASSWORD }}
+        TF_VAR_postgres_password: ${{ secrets.POSTGRES_PASSWORD }}
+        TF_VAR_azure_openai_api_key: ${{ secrets.AZURE_OPENAI_API_KEY }}
+        TF_VAR_azure_openai_endpoint: ${{ secrets.AZURE_OPENAI_ENDPOINT }}
+        TF_VAR_azure_openai_chat_deployment: ${{ secrets.AZURE_OPENAI_CHAT_DEPLOYMENT }}
+        TF_VAR_azure_openai_embedding_deployment: ${{ secrets.AZURE_OPENAI_EMBEDDING_DEPLOYMENT }}
+        TF_VAR_azure_openai_chat_model: ${{ secrets.AZURE_OPENAI_CHAT_MODEL }}
+        TF_VAR_azure_openai_embedding_model: ${{ secrets.AZURE_OPENAI_EMBEDDING_MODEL }}
+        TF_VAR_azure_openai_api_version: ${{ secrets.AZURE_OPENAI_API_VERSION }}
+        TF_VAR_app_version: manual-${{ github.sha }}
+      run: |
+        terraform import azapi_resource.container_app "/subscriptions/${{ secrets.AZURE_SUBSCRIPTION_ID }}/resourceGroups/davai_poigraem/providers/Microsoft.App/containerApps/rag-crawl-app" || echo "Container App not found or already imported"
+      continue-on-error: true
       
     - name: Terraform Apply (Manual)
       working-directory: terraform
