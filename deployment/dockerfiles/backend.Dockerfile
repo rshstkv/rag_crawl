@@ -28,6 +28,9 @@ COPY alembic.ini ./
 # Создаем директорию для логов
 RUN mkdir -p logs
 
+# Устанавливаем PYTHONPATH
+ENV PYTHONPATH=/app/src
+
 # Открываем порт
 EXPOSE 8000
 
