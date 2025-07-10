@@ -83,6 +83,8 @@ src/
 
 ## Переменные окружения
 
+Создайте файл `.env.local` в папке `frontend/`:
+
 ```env
 # API Configuration
 NEXT_PUBLIC_API_URL=http://localhost:8000/api
@@ -91,6 +93,15 @@ NEXT_PUBLIC_API_URL=http://localhost:8000/api
 NEXT_PUBLIC_APP_NAME=RAG Crawl
 NEXT_PUBLIC_APP_DESCRIPTION=Чат с документами на основе векторного поиска
 ```
+
+### ⚠️ Важно: Настройка API URL
+
+Убедитесь, что `NEXT_PUBLIC_API_URL` содержит корректный путь к API:
+
+- ✅ Правильно: `http://localhost:8000/api` (с `/api`)
+- ❌ Неправильно: `http://localhost:8000` (без `/api`)
+
+Без правильного API URL фронтенд будет получать 404 ошибки при обращении к серверу.
 
 ## Разработка
 
