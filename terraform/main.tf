@@ -300,7 +300,7 @@ resource "azapi_resource" "container_app" {
             probes = [{
               type = "Liveness"
               httpGet = {
-                path = "/health"
+                path = "/healthz"
                 port = 6333
               }
               initialDelaySeconds = 30
