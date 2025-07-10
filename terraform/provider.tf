@@ -38,4 +38,5 @@ provider "azurerm" {
 # Configure the Azure API Provider for Container Apps
 provider "azapi" {
   subscription_id = var.subscription_id
+  use_msi = false
 } 

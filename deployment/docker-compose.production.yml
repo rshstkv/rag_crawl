@@ -67,8 +67,10 @@ services:
     build:
       context: .
       dockerfile: deployment/dockerfiles/frontend.Dockerfile
+      args:
+        NEXT_PUBLIC_API_URL: /api
     environment:
-      - NEXT_PUBLIC_API_URL=http://localhost/api
+      - NEXT_PUBLIC_API_URL=/api
     depends_on:
       backend:
         condition: service_healthy
