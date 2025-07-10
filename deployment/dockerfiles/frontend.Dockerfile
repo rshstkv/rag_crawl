@@ -9,7 +9,12 @@ FROM node:18-alpine AS builder
 WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY frontend/ ./
+
+# Set environment variables for build time
+ARG NEXT_PUBLIC_API_URL=/api
+ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
 ENV NEXT_TELEMETRY_DISABLED=1
+
 # Отладка: смотрим, какие файлы скопированы
 RUN ls -laR
 RUN npm run build
@@ -17,9 +22,6 @@ RUN npm run build
 # Production image, copy all the files and run next
 FROM node:18-alpine AS runner
 WORKDIR /app
-
-ARG NEXT_PUBLIC_API_URL=/api
-ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
 
 ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1

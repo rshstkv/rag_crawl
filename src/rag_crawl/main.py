@@ -62,6 +62,8 @@ app.add_middleware(
         "http://127.0.0.1:3001",
         "http://localhost:8000",  # FastAPI
         "http://127.0.0.1:8000",
+        "https://rag-crawl-app.ashytree-4c8ced9c.westeurope.azurecontainerapps.io",  # Production
+        "*"  # Allow all origins for production (remove if security is critical)
     ],
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
