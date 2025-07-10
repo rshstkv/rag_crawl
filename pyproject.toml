@@ -29,6 +29,7 @@ llama-index-llms-azure-openai = "^0.3.4"
 llama-index-vector-stores-qdrant = "^0.6.1"
 httpx = "^0.28.1"
 sse-starlette = "^2.3.6"
+python-multipart = "^0.0.20"
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^7.4.0"
