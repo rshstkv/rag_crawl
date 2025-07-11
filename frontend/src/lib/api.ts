@@ -170,7 +170,7 @@ class ApiClient {
 
     // Chat Endpoints
     async chat(message: string, namespace: string = "default", session_id?: string): Promise<ChatResponse> {
-        return this.request<ChatResponse>('/chat/', {
+        return this.request<ChatResponse>('/chat/chat', {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
